@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![React](https://img.shields.io/badge/React-19.2-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Three.js](https://img.shields.io/badge/Three.js-r186-black?logo=threedotjs)](https://threejs.org/)
-[![Gemini](https://img.shields.io/badge/Gemini_2.5_Flash-Google_AI-4285F4?logo=google)](https://ai.google.dev/)
+[![Gemini](https://img.shields.io/badge/Gemini_3.8_Flash-Google_AI-4285F4?logo=google)](https://ai.google.dev/)
 [![Bun](https://img.shields.io/badge/Bun-1.4-FBF0DF?logo=bun&logoColor=black)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
@@ -52,8 +52,8 @@ Deploy, toggle, and configure civic interventions in real time:
 - **Unintended Consequences Radar**: Automatically detects second-order externalities such as gentrification risk, loitering displacement, and light pollution.
 - **Citizen Voice Journals**: Live contextual thought feeds expressing synthetic citizens' emotions, fear spikes, relief, and daily travel reflections.
 
-### 5. 🤖 Secure Gemini 2.5 Flash Policy Consultant
-- Real-time deep civic policy analysis powered by Google's `gemini-2.5-flash`.
+### 5. 🤖 Secure Gemini 3.8 Flash Policy Consultant
+- Real-time deep civic policy analysis powered by Google's `gemini-3.8-flash`.
 - Generate executive policy briefs, calculate CapEx/OpEx payback timelines, and evaluate political viability.
 - **Zero-Bundle-Leak Architecture**: All AI requests are mediated via a hardened local Bun backend proxy (`server/index.ts`). No API keys are ever bundled or exposed in client assets.
 

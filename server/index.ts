@@ -1,7 +1,7 @@
 // Backend proxy server for Gemini API - API Key NEVER touches client bundle!
 
 const API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-3.8-flash';
 const PORT = 3001;
 
 async function callGoogleGemini(prompt: string, systemInstruction?: string): Promise<string> {

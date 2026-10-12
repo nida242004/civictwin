@@ -110,7 +110,7 @@ export function GeminiPolicyAdvisorModal({
             <div>
               <h2 className="gemini-title">Gemini AI Policy Suite</h2>
               <p className="gemini-subtitle">
-                Powered by Google Gemini 2.5 Flash • Live Urban Policy Reasoning
+                Powered by Google Gemini 3.8 Flash • Live Urban Policy Reasoning
               </p>
             </div>
           </div>
