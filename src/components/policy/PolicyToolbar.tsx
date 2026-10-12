@@ -8,7 +8,6 @@ import {
   Armchair,
   CheckCircle2,
   DollarSign,
-  PlusCircle,
   Play,
   Sparkles,
 } from 'lucide-react';
@@ -20,8 +19,6 @@ interface Props {
   onTogglePolicy: (id: PolicyId) => void;
   onApplyRecommended: () => void;
   onSimulate: () => void;
-  selectedTool: string | null;
-  onSelectTool: (tool: string | null) => void;
   totalCapEx: number;
   monthlyOpEx: number;
 }
@@ -32,8 +29,6 @@ export function PolicyToolbar({
   onTogglePolicy,
   onApplyRecommended,
   onSimulate,
-  selectedTool,
-  onSelectTool,
   totalCapEx,
   monthlyOpEx,
 }: Props) {
@@ -58,9 +53,9 @@ export function PolicyToolbar({
     <div className="policy-toolbar-card">
       <div className="policy-toolbar-header">
         <div>
-          <h2 className="policy-title">Civic Policy Interventions</h2>
+          <h2 className="policy-title">Choose policy changes</h2>
           <p className="policy-subtitle">
-            Configure urban policies or drop amenities to evaluate societal impact
+            Select changes to test, then compare the estimated impact.
           </p>
         </div>
         <div className="budget-tags">
@@ -79,10 +74,12 @@ export function PolicyToolbar({
         {policies.map((p) => {
           const isActive = activePolicyIds.includes(p.id);
           return (
-            <div
+            <button
+              type="button"
               key={p.id}
               className={`policy-item-card ${isActive ? 'active' : ''}`}
               onClick={() => onTogglePolicy(p.id)}
+              aria-pressed={isActive}
             >
               <div className="policy-card-top">
                 <div className={`policy-icon-badge ${isActive ? 'active' : ''}`}>
@@ -102,7 +99,7 @@ export function PolicyToolbar({
                 <span>+${p.capex.toLocaleString()} Upfront</span>
                 <span>${p.monthlyOpex}/mo</span>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
@@ -111,12 +108,12 @@ export function PolicyToolbar({
       <div className="policy-action-bar">
         <button className="btn-secondary" onClick={onApplyRecommended}>
           <Sparkles size={16} />
-          <span>Apply Recommended Policy Bundle</span>
+          <span>Use recommended setup</span>
         </button>
 
         <button className="btn-primary" onClick={onSimulate}>
           <Play size={16} fill="currentColor" />
-          <span>Simulate Policy Impact</span>
+          <span>View impact</span>
         </button>
       </div>
     </div>

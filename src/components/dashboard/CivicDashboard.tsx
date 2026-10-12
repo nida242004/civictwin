@@ -172,20 +172,20 @@ export function CivicDashboard({
               <div style={{ width: '100%', height: 220 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={comparisonData} margin={{ top: 10, right: 20, left: -10, bottom: 0 }}>
-                    <XAxis dataKey="metric" stroke="#94a3b8" fontSize={12} tickLine={false} />
-                    <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} domain={[0, 100]} />
+                    <XAxis dataKey="metric" stroke="#9eacbb" fontSize={12} tickLine={false} />
+                    <YAxis stroke="#9eacbb" fontSize={12} tickLine={false} domain={[0, 100]} />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: '#1e293b',
-                        borderColor: '#334155',
+                        backgroundColor: '#2a3642',
+                        borderColor: '#4a5968',
                         borderRadius: '8px',
-                        color: '#f8fafc',
+                        color: '#eef2f6',
                         fontSize: '12px',
                       }}
                     />
                     <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }} />
-                    <Bar dataKey="Status Quo" fill="#64748b" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="With Policy" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Status Quo" fill="#778a9d" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="With Policy" fill="#72b9a5" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
