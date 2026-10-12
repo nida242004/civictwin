@@ -1,41 +1,72 @@
 // Backend proxy server for Gemini API - API Key NEVER touches client bundle!
 
 const API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = 'gemini-3.8-flash';
 const PORT = 3001;
 
-async function callGoogleGemini(prompt: string, systemInstruction?: string): Promise<string> {
+// Multi-tier model failover chain for maximum resilience against 503 high-demand spikes
+const CANDIDATE_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+];
+
+async function callGoogleGemini(
+  prompt: string,
+  systemInstruction?: string
+): Promise<{ text: string; modelUsed: string }> {
   if (!API_KEY) {
     throw new Error('GEMINI_API_KEY is not set on the server.');
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${API_KEY}`;
-  const payload: any = {
-    contents: [{ parts: [{ text: prompt }] }],
-  };
+  let lastError: Error | null = null;
 
-  if (systemInstruction) {
-    payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+  for (const model of CANDIDATE_MODELS) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`;
+        const payload: any = {
+          contents: [{ parts: [{ text: prompt }] }],
+        };
+
+        if (systemInstruction) {
+          payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+        }
+
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          // 503 = Service Unavailable (High Demand), 429 = Rate limit
+          if ((resp.status === 503 || resp.status === 429) && attempt === 1) {
+            console.warn(`[Gemini Proxy] ${model} attempt 1 returned ${resp.status} (High Demand). Retrying in 600ms...`);
+            await new Promise((r) => setTimeout(r, 600));
+            continue;
+          }
+          throw new Error(`Google API returned ${resp.status} on ${model}: ${errText}`);
+        }
+
+        const data = await resp.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!text) {
+          throw new Error(`Empty response from ${model}`);
+        }
+
+        console.log(`[Gemini Proxy] Successfully answered via ${model}`);
+        return { text: text.trim(), modelUsed: model };
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Gemini Proxy] Model ${model} encountered error: ${err.message}. Seamlessly attempting next model in failover chain...`);
+        break; // break retry loop, move to next model in CANDIDATE_MODELS
+      }
+    }
   }
 
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!resp.ok) {
-    const errText = await resp.text();
-    throw new Error(`Google API returned ${resp.status}: ${errText}`);
-  }
-
-  const data = await resp.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error('Empty response from Google Gemini API');
-  }
-
-  return text.trim();
+  throw lastError || new Error('All candidate Gemini models temporarily unavailable.');
 }
 
 const server = Bun.serve({
@@ -57,7 +88,12 @@ const server = Bun.serve({
     // Health check
     if (url.pathname === '/api/health') {
       return Response.json(
-        { status: 'ok', geminiReady: !!API_KEY },
+        {
+          status: 'ok',
+          geminiReady: !!API_KEY,
+          primaryModel: CANDIDATE_MODELS[0],
+          failoverChain: CANDIDATE_MODELS,
+        },
         { headers: corsHeaders }
       );
     }
@@ -96,8 +132,8 @@ Please generate:
 4. Return on Civic Investment (ROCI) Conclusion for Council Approval
 `;
 
-        const memo = await callGoogleGemini(prompt, systemInstruction);
-        return Response.json({ memo }, { headers: corsHeaders });
+        const { text: memo, modelUsed } = await callGoogleGemini(prompt, systemInstruction);
+        return Response.json({ memo, modelUsed }, { headers: corsHeaders });
       } catch (err: any) {
         return Response.json({ error: err.message }, { status: 500, headers: corsHeaders });
       }
@@ -133,12 +169,12 @@ Please generate:
 Return ONLY valid raw JSON without markdown backticks or commentary.`;
 
         const prompt = `Generate a unique citizen persona for a neighborhood simulation: ${promptContext}`;
-        const rawJson = await callGoogleGemini(prompt, systemInstruction);
+        const { text: rawJson, modelUsed } = await callGoogleGemini(prompt, systemInstruction);
         const cleanJson = rawJson.replace(/```json\n?|\n?```/g, '').trim();
         const citizen = JSON.parse(cleanJson);
         citizen.id = `c-gemini-${Date.now()}`;
 
-        return Response.json({ citizen }, { headers: corsHeaders });
+        return Response.json({ citizen, modelUsed }, { headers: corsHeaders });
       } catch (err: any) {
         return Response.json({ error: err.message }, { status: 500, headers: corsHeaders });
       }
@@ -163,8 +199,8 @@ Current Metrics:
 User Question: "${question}"
 `;
 
-        const answer = await callGoogleGemini(prompt, systemInstruction);
-        return Response.json({ answer }, { headers: corsHeaders });
+        const { text: answer, modelUsed } = await callGoogleGemini(prompt, systemInstruction);
+        return Response.json({ answer, modelUsed }, { headers: corsHeaders });
       } catch (err: any) {
         return Response.json({ error: err.message }, { status: 500, headers: corsHeaders });
       }
