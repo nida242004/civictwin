@@ -8,12 +8,14 @@ import { CivicDashboard } from './components/dashboard/CivicDashboard';
 import { CitizenInspectorModal } from './components/inspector/CitizenInspectorModal';
 import { GeminiPolicyAdvisorModal } from './components/dashboard/GeminiPolicyAdvisorModal';
 import { TimeScrubber } from './components/controls/TimeScrubber';
+import { ArchitectToolbar, type ArchitectTool } from './components/canvas/ArchitectToolbar';
 import { SCENARIO_1, AVAILABLE_POLICIES } from './simulation/scenarios';
 import { simulateCitizen } from './simulation/behaviorEngine';
 import { calculateAggregateMetrics } from './simulation/metricsCalculator';
 import type { PolicyId, AggregateMetrics } from './types/policy';
 import type { Position, DistrictGrid, Amenity, TransitRoute } from './types/urban';
 import type { CitizenPersona, CitizenSimResult } from './types/citizen';
+import { INITIAL_PERPS, type PerpPersona } from './types/perp';
 
 export function App() {
   const scenario = SCENARIO_1;
@@ -50,9 +52,10 @@ export function App() {
   // Selected citizen for inspection modal
   const [selectedCitizenId, setSelectedCitizenId] = useState<string | null>(null);
 
-  // Manual amenity placement tool (e.g. click to drop lamp)
-  const [selectedTool, setSelectedTool] = useState<string | null>(null);
+  // Urban Architect tool & user-placed features
+  const [selectedTool, setSelectedTool] = useState<ArchitectTool>('INSPECT');
   const [userPlacedAmenities, setUserPlacedAmenities] = useState<Amenity[]>([]);
+  const [perps, setPerps] = useState<PerpPersona[]>(INITIAL_PERPS);
 
   // Toggle a policy
   const handleTogglePolicy = (id: PolicyId) => {
@@ -183,13 +186,13 @@ export function App() {
 
   // Run Simulation for Baseline
   const baselineResults = useMemo<CitizenSimResult[]>(() => {
-    return allCitizens.map((c) => simulateCitizen(c, baselineGrid, c.departureTime));
-  }, [allCitizens, baselineGrid]);
+    return allCitizens.map((c) => simulateCitizen(c, baselineGrid, c.departureTime, perps));
+  }, [allCitizens, baselineGrid, perps]);
 
   // Run Simulation for Policy District
   const policyResults = useMemo<CitizenSimResult[]>(() => {
-    return allCitizens.map((c) => simulateCitizen(c, policyGrid, c.departureTime));
-  }, [allCitizens, policyGrid]);
+    return allCitizens.map((c) => simulateCitizen(c, policyGrid, c.departureTime, perps));
+  }, [allCitizens, policyGrid, perps]);
 
   // Aggregate Metrics for Baseline & Policy
   const baselineMetrics = useMemo<AggregateMetrics>(() => {
@@ -205,7 +208,29 @@ export function App() {
   const activeResults = mode === 'BASELINE' ? baselineResults : policyResults;
   const activeMetrics = mode === 'BASELINE' ? baselineMetrics : policyMetrics;
 
-  // Manual tile click for placing amenities
+  // Count threats deterred by lighting & police
+  const threatsDeterred = useMemo(() => {
+    return perps.filter((p) => {
+      return activeGrid.amenities.some((a) => {
+        const isDeterrent = a.type === 'STREETLIGHT' || a.type === 'POLICE_KIOSK';
+        if (!isDeterrent) return false;
+        const d = Math.hypot(a.position.x - p.position.x, a.position.y - p.position.y);
+        return d <= (a.type === 'POLICE_KIOSK' ? 4.2 : a.radius * 1.2);
+      });
+    }).length;
+  }, [perps, activeGrid.amenities]);
+
+  const customCounts = useMemo(() => {
+    return {
+      streetlights: userPlacedAmenities.filter((a) => a.type === 'STREETLIGHT').length,
+      policeKiosks: userPlacedAmenities.filter((a) => a.type === 'POLICE_KIOSK').length,
+      perps: perps.filter((p) => p.isCustomPlaced).length,
+      busStops: userPlacedAmenities.filter((a) => a.type === 'BUS_STOP').length,
+      restrooms: userPlacedAmenities.filter((a) => a.type === 'PUBLIC_TOILET').length,
+    };
+  }, [userPlacedAmenities, perps]);
+
+  // Manual tile click for placing or bulldozing features
   const handleTileClick = useCallback(
     (pos: Position) => {
       if (selectedTool === 'STREETLIGHT') {
@@ -213,7 +238,7 @@ export function App() {
           id: `custom-lamp-${Date.now()}`,
           type: 'STREETLIGHT',
           position: pos,
-          radius: 2.2,
+          radius: 2.5,
           activeHours: [18, 6],
           name: `Custom Lamp (${pos.x}, ${pos.y})`,
           description: 'User placed streetlight',
@@ -222,10 +247,77 @@ export function App() {
           isPolicyAdded: true,
         };
         setUserPlacedAmenities((prev) => [...prev, newLamp]);
+        confetti({ particleCount: 30, spread: 50, origin: { y: 0.85 } });
+      } else if (selectedTool === 'POLICE_KIOSK') {
+        const newKiosk: Amenity = {
+          id: `custom-police-${Date.now()}`,
+          type: 'POLICE_KIOSK',
+          position: pos,
+          radius: 4.0,
+          activeHours: [0, 24],
+          name: `Police SOS Booth (${pos.x}, ${pos.y})`,
+          description: 'Emergency security and anti-perp beacon',
+          capex: 6500,
+          monthlyOpex: 350,
+          isPolicyAdded: true,
+        };
+        setUserPlacedAmenities((prev) => [...prev, newKiosk]);
+        confetti({ particleCount: 45, spread: 60, origin: { y: 0.85 } });
+      } else if (selectedTool === 'PERP') {
+        const newPerp: PerpPersona = {
+          id: `custom-perp-${Date.now()}`,
+          name: `Suspicious Lurker (${pos.x}, ${pos.y})`,
+          position: pos,
+          threatRadius: 2.5,
+          state: 'LURKING',
+          speechText: 'Waiting in dark shadows 🦹',
+          isCustomPlaced: true,
+        };
+        setPerps((prev) => [...prev, newPerp]);
+      } else if (selectedTool === 'BUS_STOP') {
+        const newStop: Amenity = {
+          id: `custom-bus-${Date.now()}`,
+          type: 'BUS_STOP',
+          position: pos,
+          radius: 1.5,
+          activeHours: [0, 24],
+          name: `Bus Stop (${pos.x}, ${pos.y})`,
+          description: 'Safe transit stop',
+          capex: 4500,
+          monthlyOpex: 120,
+          isPolicyAdded: true,
+        };
+        setUserPlacedAmenities((prev) => [...prev, newStop]);
+      } else if (selectedTool === 'RESTROOM') {
+        const newRestroom: Amenity = {
+          id: `custom-restroom-${Date.now()}`,
+          type: 'PUBLIC_TOILET',
+          position: pos,
+          radius: 1.5,
+          activeHours: [0, 24],
+          name: `Restroom Pod (${pos.x}, ${pos.y})`,
+          description: 'Public accessible restroom',
+          capex: 18000,
+          monthlyOpex: 400,
+          isPolicyAdded: true,
+        };
+        setUserPlacedAmenities((prev) => [...prev, newRestroom]);
+      } else if (selectedTool === 'DEMOLISH') {
+        setUserPlacedAmenities((prev) =>
+          prev.filter((a) => a.position.x !== pos.x || a.position.y !== pos.y)
+        );
+        setPerps((prev) =>
+          prev.filter((p) => p.position.x !== pos.x || p.position.y !== pos.y)
+        );
       }
     },
     [selectedTool]
   );
+
+  const handleResetCustom = () => {
+    setUserPlacedAmenities([]);
+    setPerps(INITIAL_PERPS);
+  };
 
   const handleSimulate = () => {
     confetti({
@@ -262,11 +354,22 @@ export function App() {
       <div className="main-workspace">
         {/* Left Side: 3D Canvas & Simulation Visualizer */}
         <div className="canvas-column">
+          {/* Top Interactive Architect & Crime Sandbox Toolbar */}
+          <ArchitectToolbar
+            selectedTool={selectedTool}
+            onSelectTool={setSelectedTool}
+            onResetCustom={handleResetCustom}
+            customCounts={customCounts}
+            threatCount={perps.length}
+            threatsDeterred={threatsDeterred}
+          />
+
           <div className="canvas-wrapper">
             <NeighborhoodCanvas
               grid={activeGrid}
               citizens={allCitizens}
               simResults={activeResults}
+              perps={perps}
               currentHour={currentHour}
               viewMode={viewMode}
               selectedCitizenId={selectedCitizenId}
@@ -332,7 +435,7 @@ export function App() {
               onApplyRecommended={handleApplyRecommended}
               onSimulate={handleSimulate}
               selectedTool={selectedTool}
-              onSelectTool={setSelectedTool}
+              onSelectTool={(tool) => setSelectedTool((tool as ArchitectTool) || 'INSPECT')}
               totalCapEx={policyMetrics.totalCapEx}
               monthlyOpEx={policyMetrics.monthlyOpEx}
             />

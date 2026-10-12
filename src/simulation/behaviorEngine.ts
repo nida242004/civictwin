@@ -5,12 +5,14 @@ import type {
   JourneyStep,
   EmotionalState,
 } from '../types/citizen';
+import type { PerpPersona } from '../types/perp';
 import { findAStarPath, calculateTileFear, isTileLit } from './pathfinding';
 
 export function simulateCitizen(
   persona: CitizenPersona,
   grid: DistrictGrid,
-  simHour: number
+  simHour: number,
+  perps: PerpPersona[] = []
 ): CitizenSimResult {
   const qualitativeJournal: string[] = [];
   const steps: JourneyStep[] = [];
@@ -142,14 +144,36 @@ export function simulateCitizen(
 
   for (let i = 0; i < finalPath.length; i++) {
     const pos = finalPath[i];
-    const fear = calculateTileFear(pos.x, pos.y, grid, simHour, persona.safetySensitivity);
+    let fear = calculateTileFear(pos.x, pos.y, grid, simHour, persona.safetySensitivity);
+    const lit = isTileLit(pos.x, pos.y, grid.amenities, simHour);
+
+    // Check if any active perp is threatening this position in dark
+    let threatenedByPerp = false;
+    if (isNight && !lit) {
+      for (const perp of perps) {
+        // Is perp deterred by any amenity?
+        const perpLit = isTileLit(perp.position.x, perp.position.y, grid.amenities, simHour);
+        const nearPolice = grid.amenities.some(
+          (a) => a.type === 'POLICE_KIOSK' && Math.hypot(a.position.x - perp.position.x, a.position.y - perp.position.y) <= 4.0
+        );
+
+        if (!perpLit && !nearPolice) {
+          const distToPerp = Math.hypot(pos.x - perp.position.x, pos.y - perp.position.y);
+          if (distToPerp <= perp.threatRadius) {
+            threatenedByPerp = true;
+            fear = Math.min(100, Math.max(fear, 92 + Math.floor(persona.safetySensitivity * 8)));
+            break;
+          }
+        }
+      }
+    }
+
     totalFear += fear;
     if (fear > peakFear) peakFear = fear;
 
-    const lit = isTileLit(pos.x, pos.y, grid.amenities, simHour);
     let state: EmotionalState = 'SAFE';
 
-    if (fear >= 70) {
+    if (threatenedByPerp || fear >= 70) {
       state = 'FEARFUL';
     } else if (fear >= 40) {
       state = 'CAUTIOUS';
@@ -181,7 +205,12 @@ export function simulateCitizen(
     }
 
     let actionDesc = `Walking on ${grid.tiles[pos.y]?.[pos.x]?.type.toLowerCase()}`;
-    if (state === 'FEARFUL') {
+    if (threatenedByPerp) {
+      actionDesc = `🚨 High Panic: Spotted suspicious lurker in the unlit corridor!`;
+      qualitativeJournal.push(
+        `[${formatTime(simHour + elapsedMinutes / 60)}] Spotted a suspicious figure lurking in the dark alley at (${pos.x}, ${pos.y})! Heart racing, quickened pace to escape!`
+      );
+    } else if (state === 'FEARFUL') {
       actionDesc = `Anxious walking through dark unlit zone (Fear: ${fear}%)`;
     } else if (state === 'DETOURING') {
       actionDesc = `Taking longer detour around unlit northern alley`;
