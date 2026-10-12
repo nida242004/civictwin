@@ -25,6 +25,11 @@ In conventional municipal governance, policy changes are tested in production on
 
 ## ✨ Key Features
 
+### 🗺️ Locality Home & Neighborhood Designer
+- Start from a locality dashboard featuring the Maplewood sample, or build and save your own neighborhood.
+- Arrange a 16 × 16 locality map by placing homes, shops, schools, clinics, transit hubs, parks, roads, sidewalks, open space, and dark areas.
+- Saved localities stay in this browser and open directly in the existing simulation with synthetic residents generated from placed homes.
+
 ### 1. 🌆 Real-Time 3D Spatial Micro-District
 - Fully interactive Three.js & React Three Fiber urban canvas with real-time 24-hour diurnal lighting cycles.
 - Dynamic road networks with dual-lane dividers, crosswalks, pedestrian zones, and lush public parks.

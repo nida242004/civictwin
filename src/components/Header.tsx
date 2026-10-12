@@ -1,10 +1,10 @@
 import React from 'react';
-import { Shield, Sparkles, Building2, Clock, Split, Layers, Play } from 'lucide-react';
+import { Shield, Sparkles, Building2, Clock, Split, Layers, Home } from 'lucide-react';
 import type { AggregateMetrics } from '../types/policy';
 
 interface Props {
   currentScenarioTitle: string;
-  currentHour: number;
+  onGoHome: () => void;
   mode: 'BASELINE' | 'POLICY' | 'COMPARISON';
   onSetMode: (mode: 'BASELINE' | 'POLICY' | 'COMPARISON') => void;
   metrics: AggregateMetrics;
@@ -14,15 +14,13 @@ interface Props {
 
 export function Header({
   currentScenarioTitle,
-  currentHour,
+  onGoHome,
   mode,
   onSetMode,
   metrics,
   baselineMetrics,
   onOpenGeminiModal,
 }: Props) {
-  const isNight = currentHour >= 18 || currentHour < 6;
-
   const safetyDelta = baselineMetrics
     ? metrics.perceivedSafetyIndex - baselineMetrics.perceivedSafetyIndex
     : 0;
@@ -39,7 +37,7 @@ export function Header({
           <div>
             <div className="brand-title-row">
               <h1 className="brand-title">CivicTwin</h1>
-              <span className="hackathon-tag">Agentic Urban Twin</span>
+              <span className="hackathon-tag">Neighborhood simulator</span>
             </div>
             <p className="brand-subtitle">{currentScenarioTitle}</p>
           </div>
@@ -48,34 +46,44 @@ export function Header({
 
       {/* Mode Switcher & Gemini Advisor Trigger */}
       <div className="header-center-group">
+        <button className="locality-nav-button" onClick={onGoHome}>
+          <Home size={15} />
+          <span>All localities</span>
+        </button>
         <div className="mode-switcher">
           <button
             className={`mode-btn ${mode === 'BASELINE' ? 'active' : ''}`}
             onClick={() => onSetMode('BASELINE')}
+            aria-pressed={mode === 'BASELINE'}
+            title="View the neighborhood without added policies"
           >
             <Layers size={15} />
-            <span>Status Quo</span>
+            <span>Baseline</span>
           </button>
           <button
             className={`mode-btn ${mode === 'POLICY' ? 'active' : ''}`}
             onClick={() => onSetMode('POLICY')}
+            aria-pressed={mode === 'POLICY'}
+            title="Choose and test policy changes"
           >
             <Sparkles size={15} />
-            <span>Policy Sandbox</span>
+            <span>With policies</span>
           </button>
           <button
             className={`mode-btn ${mode === 'COMPARISON' ? 'active' : ''}`}
             onClick={() => onSetMode('COMPARISON')}
+            aria-pressed={mode === 'COMPARISON'}
+            title="Compare baseline and policy estimates"
           >
             <Split size={15} />
-            <span>A/B Comparison</span>
+            <span>Compare</span>
           </button>
         </div>
 
         {onOpenGeminiModal && (
           <button className="btn-gemini-trigger" onClick={onOpenGeminiModal}>
             <Sparkles size={14} className="text-amber-300" />
-            <span>Gemini Advisor</span>
+            <span>AI policy advisor</span>
           </button>
         )}
       </div>

@@ -54,56 +54,56 @@ export function ArchitectToolbar({
     {
       id: 'INSPECT',
       label: 'Inspect',
-      sublabel: 'Click any person or spot',
+      sublabel: 'Select a person or map tile',
       icon: <MousePointer size={15} />,
-      color: '#94a3b8',
+      color: '#9eacbb',
     },
     {
       id: 'STREETLIGHT',
       label: 'Streetlight',
       sublabel: 'Illuminates dark alleys',
       icon: <Lightbulb size={15} />,
-      color: '#f59e0b',
+      color: '#d8bd7d',
       badgeCount: customCounts.streetlights,
     },
     {
       id: 'POLICE_KIOSK',
-      label: 'Police Booth',
-      sublabel: 'Chases perps in 4 tiles',
+      label: 'Safety booth',
+      sublabel: 'Adds a nearby safety point',
       icon: <ShieldAlert size={15} />,
-      color: '#38bdf8',
+      color: '#83afd7',
       badgeCount: customCounts.policeKiosks,
     },
     {
       id: 'PERP',
-      label: 'Spawn Perp',
-      sublabel: 'Place lurker in dark zone',
+      label: 'Add risk',
+      sublabel: 'Add a simulated safety risk',
       icon: <Skull size={15} />,
-      color: '#ef4444',
+      color: '#df8990',
       badgeCount: customCounts.perps,
     },
     {
       id: 'BUS_STOP',
       label: 'Bus Stop',
-      sublabel: 'Transit safe hop node',
+      sublabel: 'Add a transit stop',
       icon: <Bus size={15} />,
-      color: '#10b981',
+      color: '#72b9a5',
       badgeCount: customCounts.busStops,
     },
     {
       id: 'RESTROOM',
       label: 'Restroom',
-      sublabel: 'Universal hygiene pod',
+      sublabel: 'Add an accessible restroom',
       icon: <Bath size={15} />,
-      color: '#a855f7',
+      color: '#a99acb',
       badgeCount: customCounts.restrooms,
     },
     {
       id: 'DEMOLISH',
-      label: 'Bulldoze',
-      sublabel: 'Remove placed item',
+      label: 'Remove item',
+      sublabel: 'Remove an item you placed',
       icon: <Trash2 size={15} />,
-      color: '#f43f5e',
+      color: '#d9909a',
     },
   ];
 
@@ -112,11 +112,12 @@ export function ArchitectToolbar({
       <div className="architect-header">
         <div className="architect-title-group">
           <Sparkles size={14} className="text-amber-400" />
-          <span className="architect-title">Urban Architect & Crime Sandbox</span>
+          <span className="architect-title">Map tools</span>
+          <span className="architect-instruction">Choose a tool, then click the map.</span>
         </div>
         <div className="threat-stats-pill">
           <span className="threat-active-badge">
-            <Skull size={12} /> {threatCount} Active Threats
+          <Skull size={12} /> {threatCount} simulated risks
           </span>
           {threatsDeterred > 0 && (
             <span className="threat-deterred-badge">
@@ -134,6 +135,7 @@ export function ArchitectToolbar({
               key={t.id}
               className={`architect-tool-btn ${isActive ? 'active' : ''}`}
               onClick={() => onSelectTool(t.id)}
+              aria-pressed={isActive}
               style={
                 isActive
                   ? { borderColor: t.color, boxShadow: `0 0 14px ${t.color}40` }
@@ -157,7 +159,8 @@ export function ArchitectToolbar({
         <button
           className="architect-reset-btn"
           onClick={onResetCustom}
-          title="Reset all custom placed amenities & perps"
+          title="Remove all items and risks you placed on the map"
+          aria-label="Reset placed map items"
         >
           <RotateCcw size={14} />
           <span>Reset</span>
@@ -167,12 +170,12 @@ export function ArchitectToolbar({
       {selectedTool !== 'INSPECT' && (
         <div className="architect-hint-banner">
           <span>
-            {selectedTool === 'STREETLIGHT' && '💡 Click any ground tile to install a streetlight with golden volumetric lighting.'}
-            {selectedTool === 'POLICE_KIOSK' && '👮 Click any tile to build a Police SOS Booth. Automatically repels criminals.'}
-            {selectedTool === 'PERP' && '🦹 Click any unlit alley to place a suspicious lurker waiting in shadows.'}
-            {selectedTool === 'BUS_STOP' && '🚌 Click any road or sidewalk to place a safe transit boarding hub.'}
-            {selectedTool === 'RESTROOM' && '🚻 Click any sidewalk to place an accessible public restroom pod.'}
-            {selectedTool === 'DEMOLISH' && '❌ Click any placed streetlight, booth, or perp on the map to remove it.'}
+            {selectedTool === 'STREETLIGHT' && 'Click an open map tile to place a streetlight.'}
+            {selectedTool === 'POLICE_KIOSK' && 'Click an open map tile to add a safety booth.'}
+            {selectedTool === 'PERP' && 'Click an open map tile to add a simulated risk.'}
+            {selectedTool === 'BUS_STOP' && 'Click an open map tile to add a bus stop.'}
+            {selectedTool === 'RESTROOM' && 'Click an open map tile to add an accessible restroom.'}
+            {selectedTool === 'DEMOLISH' && 'Click one of your added items or risks to remove it.'}
           </span>
         </div>
       )}
