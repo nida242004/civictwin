@@ -5,7 +5,13 @@
  * Every number is computed from the stored runs — never hardcoded.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
+import { ablate, fmtInr, getCachedAblation, headlineDiff, RISK_EXPLAINER, type AblationResult } from "@/lib/sim/compare";
+import { eventTypeLabel } from "@/lib/sim/labels";
+import type { StoredRun } from "@/lib/world/types";
+
+const SameNightReplay = dynamic(() => import("./SameNightReplay"), { ssr: false });
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useEditor } from "@/lib/store/editor";
@@ -86,7 +92,7 @@ export function ResultsDialog() {
 
   const typeData = useMemo(() => {
     if (!m) return [];
-    return Object.entries(m.eventsByType).map(([type, n]) => ({ type: type.replace(/_/g, " "), count: n }));
+    return Object.entries(m.eventsByType).map(([type, n]) => ({ type: eventTypeLabel(type), count: n }));
   }, [m]);
 
   if (!project || !m || !run) {
@@ -297,6 +303,15 @@ export function CompareDialog() {
     () => (baseline && intervention ? compareRuns(baseline.metrics, intervention.metrics) : []),
     [baseline, intervention]
   );
+  const headline = useMemo(
+    () => (baseline && intervention ? headlineDiff(baseline, intervention) : null),
+    [baseline, intervention]
+  );
+  // Two extra WebGL canvases are only mounted while the dialog is open.
+  const [showReplay, setShowReplay] = useState(true);
+  useEffect(() => {
+    if (!open) setShowReplay(true);
+  }, [open]);
 
   const chartData = useMemo(
     () =>
@@ -333,15 +348,47 @@ export function CompareDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto bg-[#f7f5f1] sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto bg-[#f7f5f1] sm:max-w-6xl">
         <DialogHeader>
-          <DialogTitle className="text-[#1d2430]">Baseline vs intervention</DialogTitle>
+          <DialogTitle className="text-[#1d2430]">Same night, one change — baseline vs intervention</DialogTitle>
           <DialogDescription className="text-xs text-[#5c6470]">
-            Side-by-side comparison of safety outcomes, coverage deltas, and intervention costs.
+            Both runs use the same seed: the same people, the same perpetrators, the same night. Only your changes differ.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
+          {headline && (
+            <div
+              className={`rounded-lg border px-4 py-3 ${
+                headline.improved ? "border-[#bfe0cf] bg-[#eef7f2]" : headline.worse ? "border-[#f0c9c9] bg-[#fdf3f3]" : "border-[#e3ded4] bg-white"
+              }`}
+            >
+              <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-[#8a8272]">
+                Headline difference (simulated)
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[9px] text-white ${
+                    headline.improved ? "bg-[#2e7d5b]" : headline.worse ? "bg-[#c23b3b]" : "bg-[#8a8272]"
+                  }`}
+                >
+                  {headline.improved ? "better" : headline.worse ? "worse — rethink this change" : "no clear change"}
+                </span>
+              </div>
+              <div className="mt-0.5 text-lg font-bold text-[#1d2430]">{headline.text}</div>
+            </div>
+          )}
+
+          {showReplay ? (
+            <SameNightReplay baseline={baseline} intervention={intervention} headline={headline} />
+          ) : (
+            <button
+              onClick={() => setShowReplay(true)}
+              className="w-full rounded-lg border border-dashed border-[#8a8272] bg-white py-6 text-sm font-medium text-[#1d2430] hover:bg-[#faf8f4]"
+            >
+              ▶ Play the split-screen replay
+            </button>
+          )}
+
+          <CostEffectTable baseline={baseline} intervention={intervention} />
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
             <span className="rounded bg-white px-2 py-1 font-mono text-[#5c6470]">
               baseline seed {baseline.seed}
@@ -462,5 +509,93 @@ export function CompareDialog() {
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Risk reduced per ₹ — honest per-change ablation                     */
+/* ------------------------------------------------------------------ */
+
+function signed(n: number, unit = ""): string {
+  if (n === 0) return "—";
+  return `${n > 0 ? "+" : "−"}${Math.abs(n)}${unit}`;
+}
+
+export function CostEffectTable({ baseline, intervention }: { baseline: StoredRun; intervention: StoredRun }) {
+  const [res, setRes] = useState<AblationResult | null>(() => getCachedAblation(intervention.id));
+  useEffect(() => {
+    let alive = true;
+    if (getCachedAblation(intervention.id)) {
+      setRes(getCachedAblation(intervention.id));
+      return;
+    }
+    setRes(null);
+    // let the dialog paint first; each single-change re-run is ~100 ms
+    const id = setTimeout(() => {
+      void ablate(baseline, intervention, { yieldBetween: true }).then((r) => alive && setRes(r));
+    }, 50);
+    return () => {
+      alive = false;
+      clearTimeout(id);
+    };
+  }, [baseline, intervention]);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#e3ded4] bg-white">
+      <div className="flex items-baseline justify-between gap-2 border-b border-[#e3ded4] bg-[#faf8f4] px-3 py-2">
+        <div className="text-xs font-semibold text-[#1d2430]">Risk reduced per ₹ — which change earns its cost?</div>
+        <div className="text-[10px] text-[#8a8272]">simulated estimates · each change re-run alone on the same night</div>
+      </div>
+      {!res ? (
+        <div className="flex items-center gap-2 px-3 py-4 text-xs text-[#5c6470]">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-[#2e7d5b]" /> Re-running the baseline once per change (same seed)…
+        </div>
+      ) : res.rows.length === 0 ? (
+        <div className="px-3 py-4 text-xs text-[#5c6470]">No physical changes between the two runs (only scenario settings differ).</div>
+      ) : (
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-[#e3ded4] text-left text-[10px] uppercase tracking-wide text-[#8a8272]">
+              <th className="px-3 py-1.5 font-medium">#</th>
+              <th className="px-3 py-1.5 font-medium">Change</th>
+              <th className="px-3 py-1.5 text-right font-medium">Est. cost</th>
+              <th className="px-3 py-1.5 text-right font-medium">Risk reduced</th>
+              <th className="px-3 py-1.5 text-right font-medium">Per ₹1 lakh</th>
+              <th className="px-3 py-1.5 text-right font-medium">Incidents avoided</th>
+              <th className="px-3 py-1.5 text-right font-medium">Extra caught</th>
+              <th className="px-3 py-1.5 text-right font-medium">Blind-spot cases removed</th>
+              <th className="px-3 py-1.5 text-right font-medium">Response saved</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...res.rows, res.combined].map((r, i) => {
+              const all = r.id === "all";
+              return (
+                <tr key={r.id} className={`border-b border-[#f1ede4] last:border-0 ${all ? "bg-[#faf8f4] font-semibold" : ""}`}>
+                  <td className="px-3 py-1.5 text-[#8a8272]">{all ? "Σ" : i + 1}</td>
+                  <td className="px-3 py-1.5 text-[#1d2430]">{r.label}</td>
+                  <td className="px-3 py-1.5 text-right text-[#5c6470]">{r.costInr ? fmtInr(r.costInr) : "free"}</td>
+                  <td className={`px-3 py-1.5 text-right ${r.riskReduced > 0 ? "text-[#2e7d5b]" : r.riskReduced < 0 ? "text-[#c23b3b]" : "text-[#8a8272]"}`}>
+                    {r.riskReduced === 0 ? "—" : `${r.riskReduced > 0 ? "−" : "+"}${Math.abs(r.riskReduced)} pts`}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-[#1d2430]">
+                    {r.riskPerLakh === null ? (r.riskReduced > 0 ? "∞ (free)" : "—") : r.riskPerLakh > 0 ? r.riskPerLakh.toFixed(1) : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-[#5c6470]">{signed(r.incidentsPrevented)}</td>
+                  <td className="px-3 py-1.5 text-right text-[#5c6470]">{signed(r.caughtDelta)}</td>
+                  <td className="px-3 py-1.5 text-right text-[#5c6470]">{signed(r.blindSpotRemoved)}</td>
+                  <td className="px-3 py-1.5 text-right text-[#5c6470]">{r.responseSavedSec === null ? "—" : signed(r.responseSavedSec, " s")}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      <p className="border-t border-[#f1ede4] px-3 py-2 text-[10px] leading-snug text-[#8a8272]">
+        {RISK_EXPLAINER} Baseline risk: {res?.baselineRisk ?? "…"} pts. Single-change effects need not add up to the combined
+        effect (changes interact). Costs are standard estimates (excl. tax, civil works, maintenance). Simulated, not a crime prediction.
+        {res?.truncated && " Only the first 14 changes were tested individually."}
+      </p>
+    </div>
   );
 }

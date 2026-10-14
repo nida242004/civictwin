@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * them into the internal world model. Bounded by max area + feature caps.
  */
 export async function POST(req: NextRequest) {
-  let body: { south?: unknown; north?: unknown; west?: unknown; east?: unknown; name?: unknown };
+  let body: { south?: unknown; north?: unknown; west?: unknown; east?: unknown; name?: unknown; fixToBbox?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -38,8 +38,13 @@ export async function POST(req: NextRequest) {
 
   try {
     const bundle = await fetchOsmFeatures(s, n, w, e);
-    const { world, stats, notes } = convertOsmToWorld(bundle);
-    if (stats.roads === 0 && stats.buildings === 0) {
+    // fixToBbox: origin = bbox center and bounds = bbox span (aligns with /api/geo/satellite imagery)
+    const fix = body.fixToBbox === true;
+    const { world, stats, notes } = convertOsmToWorld(
+      bundle,
+      fix ? { origin: { lat: (s + n) / 2, lon: (w + e) / 2 }, bounds: { width: spanLon, depth: spanLat } } : undefined
+    );
+    if (!fix && stats.roads === 0 && stats.buildings === 0) {
       return NextResponse.json(
         { ok: false, error: "No mapped roads or buildings were found in this area. Try a different place or use the demo neighborhood." },
         { status: 422 }

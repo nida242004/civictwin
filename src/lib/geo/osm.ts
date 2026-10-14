@@ -92,7 +92,9 @@ out body geom;`;
   let els: OverpassEl[] = [];
 
   const uniqueMirrors = Array.from(new Set(OVERPASS_MIRRORS));
-  for (const mirror of uniqueMirrors) {
+  // two passes over the mirrors (public Overpass endpoints are flaky / 504 under load)
+  const attempts = [...uniqueMirrors, ...uniqueMirrors];
+  for (const mirror of attempts) {
     try {
       const res = await fetch(mirror, {
         method: "POST",

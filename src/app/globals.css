@@ -120,3 +120,38 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---- landing hero: first-paint animations (CSS-only so they run before hydration) ---- */
+@keyframes hero-img-in {
+  from { opacity: 0; transform: scale(1.06); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes hero-drift {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-0.8%, -0.6%, 0) scale(1.035); }
+}
+@keyframes hero-rise {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+@keyframes hero-rise-h1 {
+  from { transform: translate3d(0, 8px, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+@keyframes hero-nav-in {
+  from { opacity: 0; transform: translate3d(0, -12px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.hero-img { opacity: 0; will-change: transform, opacity; }
+.hero-img.is-loaded { animation: hero-img-in 1.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.hero-drift { animation: hero-drift 40s ease-in-out 1.2s infinite alternate both; will-change: transform; }
+.hero-h1 { animation: hero-rise-h1 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.hero-fade { animation: hero-rise 0.45s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s) both; }
+.hero-nav { animation: hero-nav-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.hero-blur { background-size: cover; background-position: center; background-image: var(--b-phone); }
+@media (min-width: 640px) { .hero-blur { background-image: var(--b-tablet); } }
+@media (min-width: 1024px) { .hero-blur { background-image: var(--b-desktop); } }
+@media (prefers-reduced-motion: reduce) {
+  .hero-img, .hero-img.is-loaded { opacity: 1; animation: none; }
+  .hero-drift, .hero-h1, .hero-fade, .hero-nav { animation: none; }
+}

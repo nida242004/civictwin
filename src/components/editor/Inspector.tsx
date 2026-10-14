@@ -39,6 +39,7 @@ export default function Inspector() {
   const moveMode = useEditor((s) => s.moveMode);
   const setMoveMode = useEditor((s) => s.setMoveMode);
   const setTool = useEditor((s) => s.setTool);
+  const locked = useEditor((s) => s.activeRun !== null);
 
   const graphInfo = useMemo(() => {
     if (!project) return null;
@@ -83,7 +84,8 @@ export default function Inspector() {
         <div className="text-[10px] font-semibold uppercase tracking-wider text-[#8a8272]">Inspector</div>
       </div>
 
-      <div className="flex-1 p-3">
+      {locked && (<div className="border-b border-[#e9e4d8] bg-[#fff7e6] px-3 py-1.5 text-[11px] text-[#8a6d1f]">Simulation view — editing locked</div>)}
+      <fieldset disabled={locked} className="m-0 min-w-0 flex-1 border-0 p-3">
         {!found && (
           <div className="space-y-3 text-xs text-[#5c6470]">
             <p>
@@ -99,7 +101,7 @@ export default function Inspector() {
                   <span className={graphInfo.stats.componentCount > 1 ? "text-[#b98a2f]" : "text-[#2e7d5b]"}>
                     Components: {graphInfo.stats.componentCount}
                   </span>
-                  <span>Largest: {graphInfo.stats.largestComponent}</span>
+                  <span>Largest: {graphInfo.stats.largestSize ?? "—"} nodes</span>
                 </div>
                 {graphInfo.stats.componentCount > 1 && (
                   <p className="mt-1.5 text-[10px] leading-snug text-[#b98a2f]">
@@ -639,7 +641,7 @@ export default function Inspector() {
             <p className="mt-2 text-[10px] text-[#8a8272]">Delete can be undone with Ctrl+Z.</p>
           </div>
         )}
-      </div>
+      </fieldset>
     </aside>
   );
 }

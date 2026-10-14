@@ -6,7 +6,7 @@
  * be presented as one.
  */
 
-import type { CctvCamera, ScenarioConfig, Streetlight, World } from "../world/types";
+import type { CctvCamera, ScenarioConfig, ScenarioId, Streetlight, World } from "../world/types";
 import { defaultScenario } from "../world/types";
 import { makeRng } from "./rng";
 
@@ -14,14 +14,14 @@ export function scenarioTemplates(): ScenarioConfig[] {
   const a = defaultScenario("typical_night");
   const b = defaultScenario("low_visibility_night");
   b.seed = 777001;
-  return [a, b];
+  const c = defaultScenario("high_risk_night");
+  c.seed = 913377;
+  return [a, b, c];
 }
 
-export function applyScenarioTemplate(
-  base: ScenarioConfig,
-  id: "typical_night" | "low_visibility_night"
-): ScenarioConfig {
-  const t = scenarioTemplates().find((s) => s.id === id)!;
+export function applyScenarioTemplate(base: ScenarioConfig, id: ScenarioId): ScenarioConfig {
+  const t = scenarioTemplates().find((s) => s.id === id);
+  if (!t) return base;
   // keep user's seed & population tweaks
   return { ...t, seed: base.seed, population: base.population, guardCount: base.guardCount };
 }
@@ -58,7 +58,7 @@ export interface CoverageResult {
   perRoadCctv: Map<string, number>;
 }
 
-function illuminationAt(
+export function illuminationAt(
   x: number,
   z: number,
   lights: Streetlight[],
@@ -77,7 +77,7 @@ function illuminationAt(
   return e * Math.max(0.2, visibility);
 }
 
-function cctvCovers(cam: CctvCamera, x: number, z: number, rangeScale: number): boolean {
+export function cctvCovers(cam: CctvCamera, x: number, z: number, rangeScale: number): boolean {
   if (!cam.active) return false;
   const dx = x - cam.x;
   const dz = z - cam.z;

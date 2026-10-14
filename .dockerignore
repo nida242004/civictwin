@@ -1,0 +1,12 @@
+node_modules
+.next
+.env*
+screenshots
+download
+db
+tests
+.zscripts
+*.log
+dev.pid
+
+.next-prod

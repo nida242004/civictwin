@@ -44,6 +44,7 @@ export function executeRun(
     world: deepClone(world),
     events: result.events,
     metrics,
+    ...(result.beats.length ? { beats: result.beats } : {}),
   };
   return {
     stored,

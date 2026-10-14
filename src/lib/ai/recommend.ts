@@ -8,6 +8,7 @@ import type { PraesidiumProject } from "../world/types";
 import type { Proposal, ProposalOp } from "./schema";
 import { applyOutages, computeCoverage, COVERAGE_SAMPLE_STEP_M } from "../sim/scenarios";
 import type { StoredRun } from "../world/types";
+import { outcomeLabel } from "../sim/labels";
 
 export interface RecommendationResult {
   proposal: Proposal;
@@ -76,8 +77,13 @@ export function deterministicRecommendation(project: PraesidiumProject, baseline
           { x: round1(g.waypoints[1]?.x ?? cx + 20), z: round1(g.waypoints[1]?.z ?? cz + 20) },
         ],
       });
+      const byOutcome = new Map<string, number>();
+      for (const e of unresolved) byOutcome.set(e.outcome, (byOutcome.get(e.outcome) ?? 0) + 1);
+      const breakdown = Array.from(byOutcome.entries())
+        .map(([o, n]) => `${n} × ${outcomeLabel(o).toLowerCase()}`)
+        .join(", ");
       basis.push(
-        `${unresolved.length} simulated event${unresolved.length > 1 ? "s" : ""} were not resolved in the baseline run; ${g.name}'s patrol is redirected through their modeled cluster.`
+        `${unresolved.length} simulated event${unresolved.length > 1 ? "s" : ""} were not resolved in the baseline run (${breakdown}); ${g.name}'s patrol is redirected through their modeled cluster.`
       );
     }
     const avgResp = baselineRun.metrics.avgResponseSec;

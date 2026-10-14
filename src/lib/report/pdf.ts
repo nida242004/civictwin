@@ -8,6 +8,13 @@ import type { ReportData } from "@/lib/run-actions";
 import type { StoredRun, World } from "@/lib/world/types";
 import { COST_ASSUMPTIONS } from "@/lib/world/types";
 import type { MetricDiff } from "@/lib/sim/metrics";
+import { eventTypeLabel, outcomeLabel } from "@/lib/sim/labels";
+import { RISK_EXPLAINER } from "@/lib/sim/compare";
+
+/** jsPDF's built-in fonts are Latin-1 only: swap arrows / rupee / dashes. */
+function pdfSafe(s: string): string {
+  return s.replace(/→/g, "->").replace(/₹/g, "INR ").replace(/[–—]/g, "-").replace(/·/g, "|");
+}
 
 const NAVY: [number, number, number] = [29, 36, 48];
 const GOLD: [number, number, number] = [232, 195, 74];
@@ -20,7 +27,7 @@ const PAGE_W = 210;
 const PAGE_H = 297;
 const CONTENT_W = PAGE_W - M * 2;
 
-export function generateReportPdf(data: ReportData): void {
+export function generateReportPdf(data: ReportData, opts?: { download?: boolean }): jsPDF {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const { project, baseline, intervention, comparison } = data;
   let y = 0;
@@ -218,7 +225,7 @@ export function generateReportPdf(data: ReportData): void {
   const types = Object.entries(baseline.metrics.eventsByType);
   if (types.length) {
     title("Simulated events by type (baseline)");
-    simpleTable(types.map(([t, n]) => [t.replace(/_/g, " "), String(n)]), [110, 70], ["Event type (fictional scenario)", "Count"]);
+    simpleTable(types.map(([t, n]) => [eventTypeLabel(t), String(n)]), [110, 70], ["Event type (fictional scenario)", "Count"]);
   }
 
   const notable = baseline.events.filter((e) => e.outcome !== "resolved").slice(0, 8);
@@ -280,6 +287,70 @@ export function generateReportPdf(data: ReportData): void {
       title("Implemented interventions");
       implemented.forEach((line) => para(`•  ${line}`, 9.5, GREY, 0.8));
     }
+
+    /* ---------------- committee page: risk reduced per rupee ---------------- */
+    const ab = data.ablation;
+    if (ab) {
+      newPage();
+      doc.setFillColor(...NAVY);
+      doc.rect(M, y - 5, CONTENT_W, 13, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.setTextColor(255, 255, 255);
+      doc.text("For the committee: what to fund first", M + 3, y + 3.5);
+      doc.setFontSize(8);
+      doc.setTextColor(...GOLD);
+      doc.text("SIMULATED ESTIMATES", PAGE_W - M - 3, y + 3.5, { align: "right" });
+      y += 15;
+
+      if (data.headline) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(...GREEN);
+        const hl = doc.splitTextToSize(`Same night, one change — ${pdfSafe(data.headline.text)}`, CONTENT_W);
+        doc.text(hl, M, y);
+        y += hl.length * 5 + 2;
+      }
+
+      const c = ab.combined;
+      para(
+        `We replayed the same simulated night twice with identical people and perpetrators (seed ${baseline.seed}). ` +
+          `With all proposed changes (est. INR ${c.costInr.toLocaleString("en-IN")}), the risk index moves from ${ab.baselineRisk} to ${c.risk} points` +
+          `${c.riskReduced > 0 ? ` (${c.riskReduced} points lower)` : ""}; ${c.caught} incident(s) end with the perpetrator caught` +
+          `${c.blindSpotRemoved > 0 ? `, and ${c.blindSpotRemoved} fewer incident(s) happen in camera blind spots` : ""}. ` +
+          "To see which purchase does the work, each change was then tested on its own against the original night.",
+        9.5,
+        NAVY,
+        3
+      );
+
+      const rows = [...ab.rows, c].map((r, i) => [
+        r.id === "all" ? "All" : String(i + 1),
+        pdfSafe(r.label),
+        r.costInr ? `INR ${r.costInr.toLocaleString("en-IN")}` : "free",
+        r.riskReduced === 0 ? "-" : `${r.riskReduced > 0 ? "-" : "+"}${Math.abs(r.riskReduced)}`,
+        r.riskPerLakh === null ? (r.riskReduced > 0 ? "free win" : "-") : r.riskPerLakh > 0 ? r.riskPerLakh.toFixed(1) : "-",
+        r.incidentsPrevented ? String(r.incidentsPrevented) : "-",
+        r.caughtDelta ? `${r.caughtDelta > 0 ? "+" : ""}${r.caughtDelta}` : "-",
+        r.responseSavedSec ? `${r.responseSavedSec} s` : "-",
+      ]);
+      simpleTable(rows, [9, 55, 24, 17, 19, 18, 15, 17], ["#", "Change", "Est. cost", "Risk", "Per lakh", "Avoided", "Caught", "Faster"]);
+
+      const best = ab.rows.find((r) => r.riskReduced > 0);
+      const dud = ab.rows.filter((r) => r.riskReduced <= 0 && r.costInr > 0);
+      const bullets: string[] = [];
+      if (best) bullets.push(`Best value: "${best.label}" — ${best.riskPerLakh !== null ? `${best.riskPerLakh.toFixed(1)} risk points removed per INR 1 lakh` : "no purchase cost"}.`);
+      if (dud.length) bullets.push(`${dud.length} paid change(s) showed no measurable benefit on this night: ${dud.map((d) => d.label).join("; ")}. Consider deferring or re-siting them.`);
+      bullets.push("Changes interact: single-change effects need not add up to the combined result.");
+      bullets.push("One simulated night is one sample. Re-test on the High-Risk and Low-Visibility nights before committing funds.");
+      bullets.forEach((b) => para(`•  ${b}`, 9.5, GREY, 1));
+      para(
+        `How to read it: "Risk" is the change in a simple risk index (lower is better). ${pdfSafe(RISK_EXPLAINER.replace("Σ", "sum of"))} "Per lakh" = risk points removed per INR 1,00,000 spent. "Avoided" = incidents that did not occur; "Caught" = extra incidents ending with the perpetrator caught; "Faster" = median guard response time saved. Costs are standard estimates excluding tax, civil works and maintenance.`,
+        8,
+        GREY,
+        2
+      );
+    }
   }
 
   /* ---------------- limitations ---------------- */
@@ -298,9 +369,10 @@ export function generateReportPdf(data: ReportData): void {
   limits.forEach((l) => para(`•  ${l}`, 9.5, GREY, 1.2));
 
   footer();
-  doc.save(
-    `${project.name.replace(/[^a-z0-9-_ ]/gi, "").replace(/\s+/g, "_")}_praesidium_report.pdf`
-  );
+  if (opts?.download !== false) {
+    doc.save(`${project.name.replace(/[^a-z0-9-_ ]/gi, "").replace(/\s+/g, "_")}_praesidium_report.pdf`);
+  }
+  return doc;
 }
 
 /* ------------------------------------------------------------------ */
@@ -341,12 +413,12 @@ function notableTable(
   simpleTable(
     events.map((e) => [
       `${e.tSec}s`,
-      e.type.replace(/_/g, " "),
+      eventTypeLabel(e.type),
       `sev ${e.severity}`,
-      e.outcome.replace(/_/g, " "),
+      outcomeLabel(e.outcome),
       e.note,
     ]),
-    [16, 32, 16, 26, 90],
+    [14, 28, 13, 50, 69],
     ["Time", "Type", "Severity", "Outcome", "Detail"]
   );
   void doc;

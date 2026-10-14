@@ -12,12 +12,14 @@ import { Suspense, useMemo, useRef, useState, useEffect, useCallback } from "rea
 import * as THREE from "three";
 import { Canvas, useThree, useFrame, type ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Grid } from "@react-three/drei";
-import { useEditor, playbackClock } from "@/lib/store/editor";
+import { useEditor, playbackClock, isLocked } from "@/lib/store/editor";
 import { cn } from "@/lib/utils";
 import type { Vec2 } from "@/lib/world/types";
 import { computeCoverage } from "@/lib/sim/scenarios";
 import { RoadsLayer, BuildingsLayer, FacilitiesLayer, StreetlightsLayer, CamerasLayer, GuardsLayer, createRoadGeometries } from "./layers";
 import { AgentsLayer, EventsLayer, PlaybackTicker } from "./playback";
+import { SiteLayers, fitZoom, DEFAULT_ZOOM } from "./siteLayers";
+import { DramaLayer } from "./drama";
 
 /* ------------------------------------------------------------------ */
 
@@ -92,7 +94,7 @@ function InteractionPlane({
   onGroundMove,
   onGroundUp,
 }: {
-  onGroundPoint: (p: Vec2, e: ThreeEvent<PointerEvent>) => void;
+  onGroundPoint: (p: Vec2, e: ThreeEvent<MouseEvent>) => void;
   onGroundDoubleClick?: (p: Vec2, e: ThreeEvent<MouseEvent>) => void;
   onGroundMove: (p: Vec2) => void;
   onGroundUp: () => void;
@@ -102,8 +104,10 @@ function InteractionPlane({
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, 0, 0]}
-      onPointerDown={(e) => {
+      onClick={(e) => {
+        if (e.nativeEvent.button !== 0) return;
         e.stopPropagation();
+        if (e.delta > 4) return; // camera drag, not a click
         onGroundPoint({ x: snap(e.point.x), z: snap(e.point.z) }, e);
       }}
       onDoubleClick={(e) => {
@@ -230,9 +234,15 @@ function SceneContents() {
     const up = () => {
       const s = store.getState();
       if (s.dragState) s.endDrag();
+      const c = (window as any).__praesidiumControls?.current;
+      if (c && !c.enabled && !store.getState().dragState) c.enabled = true;
     };
     window.addEventListener("pointerup", up);
-    return () => window.removeEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
   }, [store]);
 
   const coverage = useMemo(() => {
@@ -260,6 +270,11 @@ function SceneContents() {
       if (!s.project) return;
       if (s.dragState) {
         s.endDrag();
+        return;
+      }
+      // Navigate mode / locked simulation view: clicking never edits the world.
+      if (isLocked(s) || (s.mode !== "edit" && (s.tool !== "select" || s.moveMode))) {
+        if (s.tool === "select" && s.selection) s.select(null);
         return;
       }
       const lim = {
@@ -350,6 +365,7 @@ function SceneContents() {
         <lineBasicMaterial color={theme.frameColor} />
       </lineSegments>
 
+      <SiteLayers />
       <RoadsLayer
         roads={project.world.roads}
         coverage={coverage && layers.coverage ? coverage.perRoadLit : null}
@@ -363,6 +379,7 @@ function SceneContents() {
       <GuardsLayer guards={project.world.guards} showRoutes={layers.labels} selectedId={selection?.kind === "guard" ? selection.id : null} />
 
       <AgentsLayer />
+      <DramaLayer />
       <EventsLayer />
       <PlaybackTicker />
 
@@ -394,6 +411,9 @@ function SceneContents() {
         dampingFactor={0.12}
         minZoom={0.5}
         maxZoom={14}
+        zoomToCursor
+        mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.ROTATE }}
+        touches={{ ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE }}
         maxPolarAngle={Math.PI / 2.04}
         minPolarAngle={0.01}
         target={[0, 0, 0]}
@@ -524,7 +544,7 @@ function ViewPresetButtons() {
     if (v === "isometric") {
       controls.target.set(0, 0, 0);
       controls.object.position.set(190, 170, 190);
-      controls.object.zoom = 2.2;
+      controls.object.zoom = fitZoom(controls.object);
     } else if (v === "road") {
       // Zoomed-in street corridor perspective focused on road network & lighting
       controls.target.set(5, 0, -5);
@@ -534,7 +554,7 @@ function ViewPresetButtons() {
       // 2D orthographic map view looking straight down
       controls.target.set(0, 0, 0);
       controls.object.position.set(0.01, 320, 0.01);
-      controls.object.zoom = 2.2;
+      controls.object.zoom = fitZoom(controls.object);
     }
     controls.object.updateProjectionMatrix();
     controls.update();
@@ -585,27 +605,75 @@ function ViewPresetButtons() {
   );
 }
 
-function ThemeSwitchPills() {
-  const current = useEditor((s) => s.sceneTheme) ?? "night";
-  const setTheme = useEditor((s) => s.setSceneTheme);
+function ModeToggle() {
+  const mode = useEditor((s) => s.mode);
+  const setMode = useEditor((s) => s.setMode);
+  const locked = useEditor((s) => isLocked(s));
+  const seg = (m: "navigate" | "edit", label: string, key: string, title: string) => (
+    <button
+      onClick={() => setMode(m)}
+      disabled={locked && m === "edit"}
+      title={locked && m === "edit" ? "Locked while a simulation is loaded — exit to edit" : title}
+      className={cn(
+        "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+        mode === m ? (m === "edit" ? "bg-[#2e7d5b] text-white shadow-sm" : "bg-[#2563eb] text-white shadow-sm") : "text-[#94a3b8] hover:bg-[#1e293b] hover:text-[#f8fafc]"
+      )}
+    >
+      <span>{label}</span>
+      <kbd className="rounded bg-black/25 px-1 text-[9px] font-semibold">{key}</kbd>
+    </button>
+  );
   return (
     <div className="pointer-events-auto flex items-center gap-1 rounded-md border border-[#2c3a4a] bg-[#141d27]/90 p-1 shadow-lg backdrop-blur-md">
-      {(Object.entries(SCENE_THEMES) as [keyof typeof SCENE_THEMES, typeof SCENE_THEMES.night][]).map(([key, item]) => (
-        <button
-          key={key}
-          onClick={() => setTheme(key)}
-          className={cn(
-            "flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition",
-            current === key
-              ? "bg-[#2563eb] text-white shadow-sm"
-              : "text-[#94a3b8] hover:bg-[#1e293b] hover:text-[#f8fafc]"
-          )}
-          title={`Switch to ${item.name}`}
-        >
-          <span>{item.icon}</span>
-          <span className="hidden md:inline">{key === "night" ? "Night" : key === "sunset" ? "Sunset" : "Daylight"}</span>
-        </button>
-      ))}
+      {seg("navigate", "Navigate", "Esc", "Navigate: drag pans, right-drag rotates, nothing is moved (Esc)")}
+      {seg("edit", "Edit", "E", "Edit: place and drag objects (E)")}
+    </div>
+  );
+}
+
+function SimulationLockBadge() {
+  const locked = useEditor((s) => isLocked(s));
+  const exit = useEditor((s) => s.exitSimulation);
+  if (!locked) return null;
+  return (
+    <div className="pointer-events-auto absolute right-3 top-3 z-20 flex items-center gap-2.5 rounded-full border border-[#f59e0b]/60 bg-[#0f172a]/95 py-1 pl-3.5 pr-1.5 text-xs text-white shadow-2xl backdrop-blur-md">
+      <span className="text-[#fbbf24]">🔒</span>
+      <span className="font-medium">Simulation view — editing locked</span>
+      <button onClick={exit} className="rounded-full bg-[#2e7d5b] px-3 py-1 text-[11px] font-semibold text-white hover:bg-[#276c4f]">
+        Exit to edit
+      </button>
+    </div>
+  );
+}
+
+const HINT_KEY = "praesidium.controlsHint.dismissed";
+
+function ControlsHint() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    try {
+      setShow(localStorage.getItem(HINT_KEY) !== "1");
+    } catch {
+      setShow(true);
+    }
+  }, []);
+  if (!show) return null;
+  return (
+    <div className="pointer-events-auto absolute bottom-3 left-3 flex items-center gap-2 rounded-md border border-[#2c3a4a] bg-[#141d27]/80 px-2.5 py-1 text-[10.5px] text-[#94a3b8] backdrop-blur-md">
+      <span>Left drag pan · Right drag rotate · Scroll zoom · <kbd className="rounded bg-black/30 px-1">E</kbd> edit mode</span>
+      <button
+        aria-label="Dismiss controls hint"
+        title="Dismiss"
+        onClick={() => {
+          setShow(false);
+          try {
+            localStorage.setItem(HINT_KEY, "1");
+          } catch {}
+        }}
+        className="rounded px-1 text-[12px] leading-none hover:bg-[#1e293b] hover:text-white"
+      >
+        ×
+      </button>
     </div>
   );
 }
@@ -659,6 +727,30 @@ function RoadDrawingHUD() {
 
 export default function NeighborhoodCanvas() {
   const [webgl] = useState(webglAvailable);
+  const [gesture, setGesture] = useState<"pan" | "rotate" | null>(null);
+  const tool = useEditor((s) => s.tool);
+  const mode = useEditor((s) => s.mode);
+  const dragging = useEditor((s) => s.dragState !== null);
+  // the Compare view mounts two replay canvases — pause the main one meanwhile
+  const compareOpen = useEditor((s) => s.compareOpen && !!s.project?.interventionRun);
+  useEffect(() => {
+    const up = () => setGesture(null);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, []);
+  const cursor = dragging
+    ? "move"
+    : gesture === "pan"
+      ? "grabbing"
+      : gesture === "rotate"
+        ? "move"
+        : mode === "edit" && tool !== "select"
+          ? "crosshair"
+          : "grab";
   const sceneTheme = useEditor((s) => s.sceneTheme) ?? "night";
   const theme = SCENE_THEMES[sceneTheme] ?? SCENE_THEMES.night;
 
@@ -676,13 +768,22 @@ export default function NeighborhoodCanvas() {
   }
 
   return (
-    <div className="relative h-full w-full" style={{ backgroundColor: theme.bg }}>
+    <div
+      className="relative h-full w-full"
+      style={{ backgroundColor: theme.bg, cursor }}
+      onContextMenu={(e) => e.preventDefault()}
+      onPointerDownCapture={(e) => {
+        const t = e.target as HTMLElement;
+        if (t.tagName !== "CANVAS") return;
+        setGesture(e.button === 0 ? "pan" : "rotate");
+      }}
+    >
       <Canvas
         orthographic
+        frameloop={compareOpen ? "never" : "always"}
         dpr={[1, 1.75]}
-        camera={{ position: [190, 170, 190], zoom: 2.2, near: -800, far: 4000, frustumCulled: false }}
+        camera={{ position: [190, 170, 190], zoom: DEFAULT_ZOOM, near: -800, far: 4000, frustumCulled: false }}
         gl={{ antialias: true, powerPreference: "high-performance" }}
-        onContextMenu={(e) => e.preventDefault()}
       >
         <color attach="background" args={[theme.bg]} />
         <fog attach="fog" args={[theme.bg, theme.fogNear, theme.fogFar]} />
@@ -694,11 +795,17 @@ export default function NeighborhoodCanvas() {
       {/* Road drawing HUD banner */}
       <RoadDrawingHUD />
 
+      <SimulationLockBadge />
+
       {/* canvas toolbar */}
       <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
         <ViewPresetButtons />
-        <ThemeSwitchPills />
+        <ModeToggle />
       </div>
+
+      <ControlsHint />
     </div>
   );
 }
+
+

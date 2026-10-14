@@ -10,9 +10,10 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useEditor } from "@/lib/store/editor";
-import { applyAiProposal } from "@/lib/run-actions";
+import { applyAiProposal, runIntervention } from "@/lib/run-actions";
 import { describeOps, type Proposal } from "@/lib/ai/schema";
 import { cn } from "@/lib/utils";
+import { useIntel } from "@/lib/ai/intelStore";
 
 interface ProposeResponse {
   ok: boolean;
@@ -51,6 +52,7 @@ export default function AssistantPanel() {
   const [result, setResult] = useState<ProposeResponse["data"] | null>(null);
   const [applied, setApplied] = useState(false);
   const [providerStatus, setProviderStatus] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -84,6 +86,7 @@ export default function AssistantPanel() {
             ? { metrics: baselineRun.metrics, events: baselineRun.events }
             : null,
           message: msg,
+          localIntel: useIntel.getState().intel,
         }),
       });
       const json = (await res.json()) as ProposeResponse;
@@ -103,6 +106,20 @@ export default function AssistantPanel() {
     if (!result) return;
     applyAiProposal(result.proposal);
     setApplied(true);
+  };
+
+  const applyAndRun = async () => {
+    if (!result) return;
+    setRunError(null);
+    if (!applied) applyAiProposal(result.proposal);
+    setApplied(true);
+    await new Promise((r) => setTimeout(r, 30));
+    try {
+      await runIntervention();
+      setOpen(false);
+    } catch (e) {
+      setRunError(e instanceof Error ? e.message : "Intervention run failed.");
+    }
   };
 
   return (
@@ -280,21 +297,31 @@ export default function AssistantPanel() {
                     <Button
                       size="sm"
                       className="h-7 bg-[#2e7d5b] text-xs text-white hover:bg-[#276c4f]"
-                      onClick={apply}
+                      onClick={applyAndRun}
+                      disabled={!baselineRun}
+                      title={baselineRun ? "Apply the changes and run the intervention with the baseline seed" : "Run a baseline simulation first"}
                     >
-                      Apply to intervention scenario
+                      Apply &amp; run intervention
                     </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setResult(null)}>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={apply}>
+                      Apply only
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setResult(null)}>
                       Reject
                     </Button>
                   </>
                 ) : (
-                  <div className="w-full rounded-md bg-[#eef4f0] px-3 py-2 text-[11px] font-medium text-[#2e7d5b]">
-                    ✓ Applied. Press “Run intervention” in the top bar to measure the effect with the
-                    same seed.
+                  <div className="w-full space-y-2 rounded-md bg-[#eef4f0] px-3 py-2 text-[11px] font-medium text-[#2e7d5b]">
+                    <div>✓ Applied to the intervention scenario.</div>
+                    {baselineRun && (
+                      <Button size="sm" className="h-7 bg-[#2e7d5b] text-xs text-white hover:bg-[#276c4f]" onClick={applyAndRun}>
+                        Run intervention now (same seed)
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
+              {runError && <div className="mt-2 rounded bg-[#fdf1f1] px-2 py-1 text-[11px] text-[#a33]">{runError}</div>}
             </div>
           )}
 

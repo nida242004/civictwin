@@ -99,18 +99,62 @@ function LabelBadge({
 /* shared drag helpers                                                 */
 /* ------------------------------------------------------------------ */
 
+const DRAG_THRESHOLD_PX = 6;
+
+function setControlsEnabled(v: boolean) {
+  const c = (window as any).__praesidiumControls?.current;
+  if (c) c.enabled = v;
+}
+
+/**
+ * Edit-mode only: select on press, but only start moving the object once the
+ * pointer has travelled DRAG_THRESHOLD_PX. Orbit controls are held off for this
+ * gesture so it never pans/rotates the camera while an object is grabbed.
+ */
+function armPendingDrag(e: ThreeEvent<PointerEvent>, kind: "streetlight" | "camera" | "facility", id: string, offX: number, offZ: number) {
+  const sx = e.nativeEvent.clientX;
+  const sy = e.nativeEvent.clientY;
+  setControlsEnabled(false);
+  const cleanup = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
+  };
+  const move = (ev: PointerEvent) => {
+    if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < DRAG_THRESHOLD_PX) return;
+    cleanup();
+    useEditor.getState().beginDrag(kind, id, offX, offZ);
+  };
+  const up = () => {
+    cleanup();
+    if (!useEditor.getState().dragState) setControlsEnabled(true);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", up);
+}
+
+/** Pointer handlers shared by selectable objects. Navigate mode: click selects only. */
 function useObjectDrag(kind: "streetlight" | "camera" | "facility", id: string, x: number, z: number) {
   const store = useEditor;
   const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
     const s = store.getState();
-    if (s.tool !== "select") return;
+    if (e.nativeEvent.button !== 0) return; // right/middle = camera gestures
+    if (s.tool !== "select" || s.mode !== "edit" || s.activeRun !== null) return;
     e.stopPropagation();
     s.select({ kind, id } as never);
-    s.beginDrag(kind, id, x - e.point.x, z - e.point.z);
+    armPendingDrag(e, kind, id, x - e.point.x, z - e.point.z);
   };
-  return { onPointerDown };
+  const onClick = (e: ThreeEvent<MouseEvent>) => {
+    if (e.delta > 4) return; // it was a camera drag, not a click
+    const s = store.getState();
+    if (s.tool === "select" && !s.moveMode) {
+      e.stopPropagation();
+      s.select({ kind, id } as never);
+    }
+  };
+  return { onPointerDown, onClick };
 }
-
 /** Objects read liveMove during drags to show smooth movement without re-renders. */
 function useLivePosition(id: string, ref: React.RefObject<THREE.Group | null>, x: number, z: number) {
   const dragging = useEditor((s) => s.dragState?.id === id);
@@ -358,8 +402,9 @@ export function RoadsLayer({
             <mesh
               geometry={roadGeo}
               position={[0, y, 0]}
-              onPointerDown={(e) => {
+              onClick={(e) => {
                 e.stopPropagation();
+                if (e.delta > 4) return;
                 const s = useEditor.getState();
                 if (s.tool === "select" && !s.moveMode) {
                   select({ kind: "road", id: road.id });
@@ -465,7 +510,9 @@ const BUILDING_PALETTES = {
   },
 };
 
-export function BuildingsLayer({
+export { BuildingsLayer } from "./buildings";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function LegacyBuildingsLayer({
   buildings,
   selectedId,
   theme = "night",
@@ -596,6 +643,7 @@ function FacilityNode({ f, selected, showLabel }: { f: Facility; selected: boole
     <group ref={ref} position={[f.x, 0, f.z]}>
       <group
         onPointerDown={dragHandlers.onPointerDown}
+        onClick={dragHandlers.onClick}
         onPointerUp={(e) => {
           e.stopPropagation();
           const s = useEditor.getState();
@@ -731,6 +779,7 @@ function StreetlightNode({ l, selected, showPool }: { l: Streetlight; selected: 
     <group ref={ref} position={[l.x, 0, l.z]}>
       <group
         onPointerDown={dragHandlers.onPointerDown}
+        onClick={dragHandlers.onClick}
         onPointerUp={(e) => {
           e.stopPropagation();
           const s = useEditor.getState();
@@ -807,6 +856,7 @@ function CameraNode({ c, selected, showFov }: { c: CctvCamera; selected: boolean
     <group ref={ref} position={[c.x, 0, c.z]}>
       <group
         onPointerDown={dragHandlers.onPointerDown}
+        onClick={dragHandlers.onClick}
         onPointerUp={(e) => {
           e.stopPropagation();
           const s = useEditor.getState();
@@ -889,8 +939,9 @@ function GuardNode({ g, selected, showRoute }: { g: Guard; selected: boolean; sh
       )}
       <group ref={ref} position={[home.x, 0, home.z]}>
         <group
-          onPointerDown={(e) => {
+          onClick={(e) => {
             e.stopPropagation();
+            if (e.delta > 4) return;
             const s = useEditor.getState();
             if (s.tool !== "select") return;
             s.select({ kind: "guard", id: g.id });
@@ -930,3 +981,4 @@ export function GuardsLayer({ guards, showRoutes, selectedId }: { guards: Guard[
     </group>
   );
 }
+

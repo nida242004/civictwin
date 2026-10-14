@@ -38,7 +38,7 @@ export interface NavGraph {
   /** spatial hash for nearest-node queries */
   cellSize: number;
   cells: Map<string, number[]>;
-  stats: { nodeCount: number; edgeCount: number; componentCount: number; largestComponent: number };
+  stats: { nodeCount: number; edgeCount: number; componentCount: number; largestComponent: number; largestSize?: number };
 }
 
 const ROAD_PED_COST = 1.15;
@@ -274,6 +274,7 @@ function finalizeGraph(g: NavGraph) {
     edgeCount: g.nodes.reduce((s, n) => s + n.edges.length, 0) / 2,
     componentCount: c,
     largestComponent: largest,
+    largestSize: sizes[largest] ?? 0,
   };
 }
 

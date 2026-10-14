@@ -52,6 +52,10 @@ export interface LayerVisibility {
   cctv: boolean;
   coverage: boolean;
   labels: boolean;
+  /** Satellite ground texture (geo imports only). */
+  satellite?: boolean;
+  /** Compound walls, gates, parking & dark-zone overlays. */
+  site?: boolean;
 }
 
 /** Module-level playback clock — read every animation frame by the 3D scene. */
@@ -59,6 +63,11 @@ export const playbackClock = { t: 0 };
 
 /** Module-level live drag position — read every animation frame by dragged objects. */
 export const liveMove: { id: string | null; x: number; z: number } = { id: null, x: 0, z: 0 };
+
+export type EditMode = "navigate" | "edit";
+
+/** True while a simulation run is loaded: the society must not be edited. */
+export const isLocked = (s: { activeRun: unknown }) => s.activeRun !== null;
 
 export type DragKind = "streetlight" | "camera" | "facility" | "guard";
 
@@ -78,6 +87,9 @@ interface EditorState {
   saving: boolean;
   lastSavedAt: string | null;
 
+  mode: EditMode;
+  setMode: (m: EditMode) => void;
+  exitSimulation: () => void;
   tool: Tool;
   selection: Selection;
   roadDraft: { x: number; z: number }[];
@@ -163,6 +175,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   saving: false,
   lastSavedAt: null,
 
+  mode: "navigate",
   tool: "select",
   selection: null,
   roadDraft: [],
@@ -170,7 +183,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   dragState: null,
   moveMode: false,
 
-  layers: { lighting: true, cctv: true, coverage: false, labels: true },
+  layers: { lighting: true, cctv: true, coverage: false, labels: true, satellite: true, site: true },
   sceneTheme: "night",
   showScenarioPanel: true,
   resultsOpen: false,
@@ -197,6 +210,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       dirty: false,
       selection: null,
       tool: "select",
+      mode: "navigate",
       roadDraft: [],
       history: { past: [], future: [] },
       activeRun: null,
@@ -215,6 +229,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       dirty: false,
       selection: null,
       tool: "select",
+      mode: "navigate",
       roadDraft: [],
       history: { past: [], future: [] },
       activeRun: null,
@@ -232,6 +247,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       dirty: false,
       selection: null,
       tool: "select",
+      mode: "navigate",
       roadDraft: [],
       history: { past: [], future: [] },
       activeRun: null,
@@ -259,11 +275,28 @@ export const useEditor = create<EditorState>((set, get) => ({
     playbackClock.t = 0;
   },
 
-  setTool: (t) => set({ tool: t, roadDraft: [], moveMode: false }),
+  setMode: (m) => {
+    const s = get();
+    if (m === "edit" && isLocked(s)) return;
+    if (m === "navigate") {
+      if (s.dragState) get().endDrag();
+      set({ mode: "navigate", tool: "select", roadDraft: [], moveMode: false });
+    } else set({ mode: "edit" });
+  },
+  exitSimulation: () => {
+    playbackClock.t = 0;
+    set({ activeRun: null, runKind: null, playing: false, displayT: 0, mode: "edit" });
+  },
+
+  setTool: (t) => {
+    if (isLocked(get()) && t !== "select") return;
+    set({ tool: t, roadDraft: [], moveMode: false, ...(t !== "select" ? { mode: "edit" as const } : {}) });
+  },
   setFacilityType: (t) => set({ facilityType: t }),
   select: (sel) => set({ selection: sel, tool: sel ? "select" : get().tool, moveMode: false }),
 
   beginDrag: (kind, id, offsetX, offsetZ) => {
+    if (isLocked(get()) || get().mode !== "edit") return;
     const sel =
       kind === "streetlight"
         ? get().project?.world.streetlights.find((o) => o.id === id)
@@ -301,11 +334,15 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
   },
 
-  setMoveMode: (v) => set({ moveMode: v }),
+  setMoveMode: (v) => {
+    if (v && isLocked(get())) return;
+    set(v ? { moveMode: true, mode: "edit" } : { moveMode: false });
+  },
   setRoadDraft: (pts) => set({ roadDraft: pts }),
   pushRoadPoint: (p) => set((s) => ({ roadDraft: [...s.roadDraft, p] })),
   commitRoad: () => {
     const { roadDraft, project } = get();
+    if (isLocked(get())) return;
     if (!project || roadDraft.length < 2) return;
     const road: Road = {
       id: makeId("rd"),
@@ -341,6 +378,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   addStreetlight: (x, z) => {
+    if (isLocked(get())) return;
     const l: Streetlight = {
       id: makeId("sl"),
       x,
@@ -358,6 +396,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   addCamera: (x, z) => {
+    if (isLocked(get())) return;
     const c: CctvCamera = {
       id: makeId("cam"),
       x,
@@ -375,6 +414,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   addGuard: (x, z) => {
+    if (isLocked(get())) return;
     const g: Guard = {
       id: makeId("gd"),
       name: `Guard ${get().project?.world.guards.length ? get().project!.world.guards.length + 1 : 1}`,
@@ -389,6 +429,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   addBuilding: (x, z) => {
+    if (isLocked(get())) return;
     const b: Building = {
       id: makeId("bd"),
       name: "New Building",
@@ -409,6 +450,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   addFacility: (x, z) => {
+    if (isLocked(get())) return;
     const f: Facility = {
       id: makeId("fc"),
       name: "New Facility",
@@ -424,6 +466,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
 
   moveObject: (sel, x, z) => {
+    if (isLocked(get())) return;
     get().mutateWorld((d) => {
       if (sel.kind === "streetlight") {
         const o = d.world.streetlights.find((o) => o.id === sel.id);
@@ -488,7 +531,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   deleteSelected: () => {
     const sel = get().selection;
-    if (!sel) return;
+    if (!sel || isLocked(get())) return;
     get().mutateWorld((d) => {
       if (sel.kind === "streetlight") d.world.streetlights = d.world.streetlights.filter((o) => o.id !== sel.id);
       else if (sel.kind === "camera") d.world.cameras = d.world.cameras.filter((o) => o.id !== sel.id);
@@ -503,10 +546,15 @@ export const useEditor = create<EditorState>((set, get) => ({
   undo: () => {
     const { history, project } = get();
     if (!history.past.length || !project) return;
+    // Undo is an edit: leave the (read-only) simulation view instead of silently ignoring it.
+    if (isLocked(get())) get().exitSimulation();
+    if (get().dragState) set({ dragState: null });
     const prev = history.past[history.past.length - 1];
     set((s) => ({
       project: prev,
       dirty: true,
+      selection: null,
+      roadDraft: [],
       history: { past: s.history.past.slice(0, -1), future: [project, ...s.history.future].slice(0, HISTORY_LIMIT) },
     }));
     scheduleAutosave(get, set);
@@ -515,10 +563,12 @@ export const useEditor = create<EditorState>((set, get) => ({
   redo: () => {
     const { history, project } = get();
     if (!history.future.length || !project) return;
+    if (isLocked(get())) get().exitSimulation();
     const next = history.future[0];
     set((s) => ({
       project: next,
       dirty: true,
+      selection: null,
       history: { past: [...s.history.past, project].slice(-HISTORY_LIMIT), future: s.history.future.slice(1) },
     }));
     scheduleAutosave(get, set);
@@ -560,7 +610,11 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setActiveRun: (run, kind) => {
     playbackClock.t = 0;
-    set({ activeRun: run, runKind: kind, playing: run !== null, displayT: 0 });
+    set(
+      run
+        ? { activeRun: run, runKind: kind, playing: true, displayT: 0, mode: "navigate", tool: "select", roadDraft: [], moveMode: false, dragState: null }
+        : { activeRun: run, runKind: kind, playing: false, displayT: 0 }
+    );
   },
   setPlaying: (v) => set({ playing: v }),
   setSpeed: (v) => set({ speed: v }),
@@ -601,3 +655,5 @@ function scheduleAutosave(
 }
 
 export { defaultScenario };
+
+

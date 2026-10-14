@@ -130,6 +130,16 @@ export function validateProposal(raw: unknown, project: PraesidiumProject): Vali
     };
   }
   const proposal = parsed.data;
+  // Night conditions (incident rate, outages, haze) describe the test, not an
+  // intervention — keep only guardCount so baseline vs intervention stays fair.
+  proposal.ops = proposal.ops.filter((op) => {
+    if (op.op !== "set_scenario") return true;
+    op.patch = op.patch.guardCount !== undefined ? { guardCount: op.patch.guardCount } : {};
+    return Object.keys(op.patch).length > 0;
+  });
+  if (!proposal.ops.length) {
+    return { ok: false, errors: ["The proposal only changed night conditions, which are not interventions."], estimatedCostInr: 0 };
+  }
   const { world } = project;
   const bw = world.bounds.width / 2 + MARGIN;
   const bd = world.bounds.depth / 2 + MARGIN;
@@ -288,7 +298,11 @@ export function describeOps(proposal: Proposal): string[] {
         out.push(`${i + 1}. Update patrol route for ${op.guardId} (${op.waypoints.length} waypoints)`);
         break;
       case "set_scenario":
-        out.push(`${i + 1}. Adjust scenario parameters: ${JSON.stringify(op.patch)}`);
+        out.push(
+          op.patch.guardCount !== undefined
+            ? `${i + 1}. Set guards on duty to ${op.patch.guardCount ?? "neighbourhood default"}`
+            : `${i + 1}. Adjust scenario parameters: ${JSON.stringify(op.patch)}`
+        );
         break;
     }
   });

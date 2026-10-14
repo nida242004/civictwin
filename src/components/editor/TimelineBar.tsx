@@ -7,9 +7,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useEditor, playbackClock } from "@/lib/store/editor";
+import { useDrama } from "@/lib/store/drama";
 import { clockLabel } from "@/lib/sim/runner";
 import { loadStoredRun } from "@/lib/run-actions";
 import { cn } from "@/lib/utils";
+import { eventTypeLabel, outcomeLabel } from "@/lib/sim/labels";
+import { useNarration } from "@/lib/voice/narrate";
 import { Button } from "@/components/ui/button";
 
 const SPEEDS = [1, 2, 4, 8];
@@ -29,6 +32,9 @@ export default function TimelineBar() {
   const setResultsOpen = useEditor((s) => s.setResultsOpen);
   const setCompareOpen = useEditor((s) => s.setCompareOpen);
   const setAssistantOpen = useEditor((s) => s.setAssistantOpen);
+  const followIncident = useDrama((s) => s.followIncident);
+  const setFollowIncident = useDrama((s) => s.setFollowIncident);
+  const debriefs = useNarration((s) => s.debriefs);
   const hasBaseline = !!project?.baselineRun;
   const hasIntervention = !!project?.interventionRun;
 
@@ -121,6 +127,17 @@ export default function TimelineBar() {
           ))}
         </div>
 
+        <button
+          onClick={() => setFollowIncident(!followIncident)}
+          className={cn(
+            "rounded-md border px-2 py-1 text-[11px] font-medium",
+            followIncident ? "border-[#c23b3b] bg-[#c23b3b] text-white" : "border-[#dcd6c8] bg-white text-[#5c6470] hover:bg-[#f1ede4]"
+          )}
+          title="Cinematic camera: fly to incidents as they happen"
+        >
+          Follow incident
+        </button>
+
         {/* clock */}
         <div className="w-36 shrink-0 font-mono text-xs">
           <span className="text-[#1d2430]">{clockLabel(displayT, project.scenario.startTime)}</span>
@@ -153,7 +170,7 @@ export default function TimelineBar() {
                   backgroundColor: SEVERITY_COLORS[e.severity - 1],
                   opacity: e.tSec <= displayT ? 1 : 0.35,
                 }}
-                title={`${e.tSec}s · ${e.type}`}
+                title={`${clockLabel(e.tSec, project.scenario.startTime).slice(0, 5)} · ${eventTypeLabel(e.type)} · ${outcomeLabel(e.outcome)}`}
               />
             ))}
           </div>
@@ -164,7 +181,7 @@ export default function TimelineBar() {
           {currentEvent ? (
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: SEVERITY_COLORS[currentEvent.severity - 1] }} />
-              <span className="truncate text-[#1d2430]">{currentEvent.type.replace(/_/g, " ")}</span>
+              <span className="truncate text-[#1d2430]">{eventTypeLabel(currentEvent.type)}</span>
             </span>
           ) : (
             <span className="text-[#8a8272]">No simulated event active</span>
@@ -247,16 +264,27 @@ export default function TimelineBar() {
                 <div key={e.id} className="flex items-start gap-2 rounded border border-[#eee9df] bg-white px-2 py-1 text-[11px]">
                   <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: SEVERITY_COLORS[e.severity - 1] }} />
                   <span className="w-14 shrink-0 font-mono text-[#8a8272]">{clockLabel(e.tSec, project.scenario.startTime).slice(0, 5)}</span>
-                  <span className="w-32 shrink-0 font-medium text-[#1d2430]">{e.type.replace(/_/g, " ")}</span>
+                  <span className="w-32 shrink-0 font-medium text-[#1d2430]">{eventTypeLabel(e.type)}</span>
                   <span className="w-24 shrink-0 text-[#5c6470]">sev {e.severity}</span>
-                  <span className="flex-1 text-[#5c6470]">{e.note}</span>
+                  <span className="flex-1 text-[#5c6470]">
+                    {e.note}
+                    {debriefs[e.id] && (
+                      <span className="mt-0.5 block text-[10.5px] text-[#2e5b7d]">✦ Gemini debrief: {debriefs[e.id]}</span>
+                    )}
+                  </span>
                   <span
                     className={cn(
                       "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-medium",
-                      e.outcome === "resolved" ? "bg-[#eef4f0] text-[#2e7d5b]" : "bg-[#fdf6e7] text-[#7a5d1e]"
+                      e.outcome === "resolved"
+                        ? "bg-[#eef4f0] text-[#2e7d5b]"
+                        : e.outcome === "perp_escaped"
+                          ? "bg-[#fdecec] text-[#b42318]"
+                          : e.outcome === "escaped_on_cctv"
+                            ? "bg-[#eaf1fb] text-[#1d4ed8]"
+                            : "bg-[#fdf6e7] text-[#7a5d1e]"
                     )}
                   >
-                    {e.outcome.replace(/_/g, " ")}
+                    {outcomeLabel(e.outcome)}
                   </span>
                 </div>
               ))}
@@ -271,7 +299,7 @@ export default function TimelineBar() {
           {recent.map((e) => (
             <span key={e.id} className="flex shrink-0 items-center gap-1">
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: SEVERITY_COLORS[e.severity - 1] }} />
-              {clockLabel(e.tSec, project.scenario.startTime).slice(0, 5)} {e.type.replace(/_/g, " ")}
+              {clockLabel(e.tSec, project.scenario.startTime).slice(0, 5)} {eventTypeLabel(e.type)}
             </span>
           ))}
         </div>

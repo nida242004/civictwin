@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { callGemini, geminiConfigured } from "@/lib/ai/gemini";
 import { validateProposal, type Proposal } from "@/lib/ai/schema";
 import { deterministicRecommendation } from "@/lib/ai/recommend";
+import { OUTCOME_GLOSSARY, outcomeLabel } from "@/lib/sim/labels";
 import type { PraesidiumProject, StoredRun } from "@/lib/world/types";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +18,7 @@ export const maxDuration = 60;
  * is applied without explicit user approval in the UI.
  */
 export async function POST(req: NextRequest) {
-  let body: { project?: unknown; baselineRun?: unknown; message?: unknown };
+  let body: { project?: unknown; baselineRun?: unknown; message?: unknown; localIntel?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -30,11 +32,11 @@ export async function POST(req: NextRequest) {
   const message = typeof body.message === "string" ? body.message.slice(0, 600) : "";
   const baselineRun = (body.baselineRun as StoredRun | null) ?? null;
 
-  const geminiKey = process.env.GEMINI_API_KEY;
+  const geminiKey = geminiConfigured();
 
   if (geminiKey) {
     try {
-      const raw = await callGemini(geminiKey, project, baselineRun, message);
+      const raw = await callGeminiProposal(project, baselineRun, message, body.localIntel);
       const result = validateProposal(raw, project);
       if (result.ok) {
         return NextResponse.json({
@@ -85,7 +87,7 @@ export async function POST(req: NextRequest) {
 
 /* ------------------------------------------------------------------ */
 
-function buildPrompt(project: PraesidiumProject, baselineRun: StoredRun | null, message: string): string {
+function buildPrompt(project: PraesidiumProject, baselineRun: StoredRun | null, message: string, intel?: unknown): string {
   const { world, scenario } = project;
   const lights = world.streetlights.length;
   const cams = world.cameras.length;
@@ -128,16 +130,18 @@ function buildPrompt(project: PraesidiumProject, baselineRun: StoredRun | null, 
           unresolvedEvents: baselineRun.events
             .filter((e) => e.outcome !== "resolved")
             .slice(0, 10)
-            .map((e) => ({ x: Math.round(e.x), z: Math.round(e.z), type: e.type, outcome: e.outcome })),
+            .map((e) => ({ x: Math.round(e.x), z: Math.round(e.z), type: e.type, outcome: e.outcome, outcomeLabel: outcomeLabel(e.outcome) })),
         }
       : null,
   };
 
+  const intelBlock = formatIntel(intel);
   return `You are the Praesidium planning assistant for neighborhood safety planning exercises.
 All data is a FICTIONAL simulation. Never imply predictions of real crime or make claims about real individuals.
 
 Project summary (compact, trusted — computed by the application):
 ${JSON.stringify(summary)}
+${intelBlock}
 
 User planning request: "${message || "Suggest improvements to poorly illuminated pedestrian paths and response coverage."}"
 
@@ -165,58 +169,26 @@ Rules:
 - brightness MUST be a decimal float between 0.1 and 1.0 (e.g. 1.0 or 0.8), NOT a percentage like 80 or 100.
 - Only reference streetlight/camera/guard IDs that appear in the summary. sampleRoadMidpoints are safe positions on the walkable network.
 - Prefer placing new streetlights ON or NEAR walkable paths (use sampleRoadMidpoints or facility positions as anchors).
-- Never claim crime prevention; speak in "modeled coverage" and "estimated response" terms.`;
+- Never claim crime prevention; speak in "modeled coverage" and "estimated response" terms.
+- ${OUTCOME_GLOSSARY} Prioritise cameras covering spots where incidents ended "perp_escaped" (blind spots), and patrol/guard changes where guards were late or absent.
+- Do NOT use set_scenario to change eventsPerHour, lightingOutageFraction or ambientVisibility — those describe the night being tested, not something the society can buy; changing them would make the comparison unfair. set_scenario may only change guardCount.`;
 }
 
-async function callGemini(
-  apiKey: string,
+async function callGeminiProposal(
   project: PraesidiumProject,
   baselineRun: StoredRun | null,
-  message: string
+  message: string,
+  intel: unknown
 ): Promise<unknown> {
-  const preferredModel = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-  const candidateModels = Array.from(
-    new Set([preferredModel, "gemini-2.5-flash", "gemini-3.8-flash", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"])
-  );
-
-  let lastError: Error | null = null;
-  const promptText = buildPrompt(project, baselineRun, message);
-
-  for (const model of candidateModels) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-          generationConfig: { temperature: 0.3, responseMimeType: "application/json", maxOutputTokens: 2048 },
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        console.warn(`[Gemini Proxy] ${model} returned HTTP ${res.status}: ${errText.slice(0, 100)}. Trying fallback candidate...`);
-        lastError = new Error(`Gemini HTTP ${res.status} on ${model}`);
-        continue;
-      }
-
-      const data = (await res.json()) as {
-        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      };
-      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-      console.log(`[Gemini Proxy] Successfully generated proposal via ${model}`);
-      return parseJsonLoose(text);
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      console.warn(`[Gemini Proxy] Request error on ${model}:`, lastError.message);
-    }
-  }
-
-  throw lastError || new Error("All Gemini candidate models failed.");
+  const r = await callGemini({
+    prompt: buildPrompt(project, baselineRun, message, intel),
+    json: true,
+    temperature: 0.3,
+    maxOutputTokens: 4096,
+    timeoutMs: 30000,
+  });
+  return parseJsonLooseStrict(r.text);
 }
-
 async function callZai(
   project: PraesidiumProject,
   baselineRun: StoredRun | null,
@@ -231,15 +203,15 @@ async function callZai(
         content:
           "You are the Praesidium planning assistant. You output ONLY valid JSON matching the requested schema, with no markdown fences or commentary.",
       },
-      { role: "user", content: buildPrompt(project, baselineRun, message) },
+      { role: "user", content: buildPrompt(project, baselineRun, message, undefined) },
     ],
     thinking: { type: "disabled" },
   });
   const text = completion.choices[0]?.message?.content ?? "";
-  return parseJsonLoose(text);
+  return parseJsonLooseStrict(text);
 }
 
-function parseJsonLoose(text: string): unknown {
+function parseJsonLooseStrict(text: string): unknown {
   if (!text || !text.trim()) throw new Error("Empty model response.");
 
   // 1. Check for markdown code fences ```json ... ``` or ``` ... ```
@@ -268,3 +240,19 @@ function parseJsonLoose(text: string): unknown {
 }
 
 export type { Proposal };
+
+
+/** Compact, sanitized local-intel context (area-level only) for the planner prompt. */
+function formatIntel(intel: unknown): string {
+  const i = intel as {
+    summary?: string;
+    peakHours?: string;
+    riskFactors?: { factor?: string }[];
+    incidentMix?: Record<string, number>;
+  } | null;
+  if (!i || typeof i !== "object" || typeof i.summary !== "string") return "";
+  const factors = (i.riskFactors ?? []).slice(0, 6).map((r) => String(r.factor ?? "").slice(0, 100)).filter(Boolean);
+  return `Local context (area-level, from public sources; use it to prioritise where/when to intervene, never to profile people):
+${JSON.stringify({ summary: i.summary.slice(0, 500), peakHours: String(i.peakHours ?? "").slice(0, 80), riskFactors: factors, incidentMix: i.incidentMix ?? {} })}
+`;
+}

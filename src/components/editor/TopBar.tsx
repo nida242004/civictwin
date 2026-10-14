@@ -11,8 +11,10 @@ import { Button } from "@/components/ui/button";
 import { exportProjectJson, parseProject } from "@/lib/world/serialize";
 import { downloadJson } from "@/lib/storage/projects";
 import { runIntervention, runBaseline, prepareReportData } from "@/lib/run-actions";
-import { generateReportPdf } from "@/lib/report/pdf";
 import { useToast } from "@/hooks/use-toast";
+import { useIntel } from "@/lib/ai/intelStore";
+import { useVoiceDriver, useVoiceMuted } from "@/lib/voice/voice";
+import { useNarration, useNarrationDriver } from "@/lib/voice/narrate";
 
 export default function TopBar() {
   const project = useEditor((s) => s.project);
@@ -29,6 +31,13 @@ export default function TopBar() {
   const openProject = useEditor((s) => s.openProject);
   const activeRun = useEditor((s) => s.activeRun);
   const { toast } = useToast();
+  const [voiceMuted, setVoiceMuted] = useVoiceMuted();
+  const setIntelOpen = useIntel((s) => s.setOpen);
+  useVoiceDriver();
+  useNarrationDriver();
+  const lang = useNarration((s) => s.lang);
+  const setLang = useNarration((s) => s.setLang);
+  const narrStatus = useNarration((s) => s.status);
 
   const [busy, setBusy] = useState<"baseline" | "intervention" | "report" | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -58,6 +67,7 @@ export default function TopBar() {
         toast({ title: "No simulation results yet", description: "Run a baseline simulation first." });
         return;
       }
+      const { generateReportPdf } = await import("@/lib/report/pdf");
       generateReportPdf(data);
       toast({ title: "Report downloaded", description: "The PDF report has been generated and downloaded." });
     } catch (err) {
@@ -70,11 +80,8 @@ export default function TopBar() {
   return (
     <header className="flex h-14 items-center gap-2 border-b border-[#e3ded4] bg-white px-3">
       <button onClick={openWelcome} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-[#f1ede4]" title="Back to welcome">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1d2430] text-[#e8c34a]">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2 L20 6 V12 C20 17 16.5 20.5 12 22 C7.5 20.5 4 17 4 12 V6 Z" strokeLinejoin="round" />
-          </svg>
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.svg" alt="" width={28} height={28} className="h-7 w-7" />
         <span className="hidden text-sm font-bold tracking-tight sm:inline">Praesidium</span>
       </button>
 
@@ -113,6 +120,33 @@ export default function TopBar() {
       </Button>
 
       <div className="ml-auto flex items-center gap-2">
+        <Button variant="ghost" size="sm" onClick={() => setIntelOpen(true)} title="Local safety intel (Gemini + Google Search)">
+          ◎ Local intel
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setVoiceMuted(!voiceMuted)}
+          title={voiceMuted ? "Unmute incident voices" : "Mute incident voices"}
+          aria-label={voiceMuted ? "Unmute incident voices" : "Mute incident voices"}
+        >
+          {voiceMuted ? "🔇" : "🔊"}
+        </Button>
+        <button
+          onClick={() => setLang(lang === "en" ? "hinglish" : "en")}
+          className="flex items-center gap-1 rounded-md border border-[#dcd6c8] px-1.5 py-1 text-[10px] font-medium text-[#5c6470] hover:bg-[#f1ede4]"
+          title={
+            (lang === "en" ? "Voice lines: English — click for Hinglish" : "Voice lines: Hinglish — click for English") +
+            (narrStatus === "gemini" ? " · lines rewritten by Gemini" : narrStatus === "loading" ? " · Gemini is writing lines…" : narrStatus === "idle" ? "" : " · using built-in lines")
+          }
+        >
+          {lang === "en" ? "EN" : "हिं/EN"}
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              narrStatus === "gemini" ? "bg-[#2e7d5b]" : narrStatus === "loading" ? "animate-pulse bg-[#b98a2f]" : "bg-[#cfc8ba]"
+            }`}
+          />
+        </button>
         {isDemo && (
           <Button variant="ghost" size="sm" onClick={resetDemo} title="Reset demo to its original state">
             Reset demo
@@ -121,8 +155,8 @@ export default function TopBar() {
         <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
           Import…
         </Button>
-        <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-          Open project
+        <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} title="Open a saved project (.json)">
+          Open
         </Button>
         <input
           ref={fileRef}
@@ -157,7 +191,7 @@ export default function TopBar() {
             toast({ title: "Project exported", description: "A versioned JSON copy was downloaded." });
           }}
         >
-          Export project
+          Export
         </Button>
 
         <div className="mx-1 h-6 w-px bg-[#e3ded4]" />

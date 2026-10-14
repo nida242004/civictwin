@@ -73,7 +73,7 @@ describe("deterministic simulation engine", () => {
     expect(res.events.length).toBeGreaterThan(0);
     for (const e of res.events) {
       expect(e.tSec).toBeLessThanOrEqual(sc.durationSec);
-      expect(["resolved", "open_at_end", "unreachable", "no_guard"]).toContain(e.outcome);
+      expect(["resolved", "open_at_end", "unreachable", "no_guard", "perp_escaped", "escaped_on_cctv"]).toContain(e.outcome);
       if (e.assignedGuardId !== null) {
         if (e.outcome === "resolved") {
           expect(e.guardArrivalSec).not.toBeNull();
@@ -84,7 +84,7 @@ describe("deterministic simulation engine", () => {
           expect(e.guardArrivalSec - e.tSec).toBeGreaterThanOrEqual(0);
         }
       } else {
-        expect(["no_guard", "unreachable", "open_at_end"]).toContain(e.outcome);
+        expect(["no_guard", "unreachable", "open_at_end", "perp_escaped", "escaped_on_cctv"]).toContain(e.outcome);
       }
     }
     const resolved = res.events.filter((e) => e.outcome === "resolved");

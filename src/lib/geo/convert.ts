@@ -13,20 +13,24 @@ import type { Building, Facility, Road, World } from "../world/types";
 import type { OsmFeatureBundle } from "./osm";
 import { seededId } from "../world/ids";
 
-export function convertOsmToWorld(bundle: OsmFeatureBundle): { world: World; stats: Record<string, number>; notes: string[] } {
+export function convertOsmToWorld(
+  bundle: OsmFeatureBundle,
+  /** Fix the local origin (and optionally the bounds) instead of fitting to the features — used by the satellite import so the world matches the image. */
+  opts?: { origin?: { lat: number; lon: number }; bounds?: { width: number; depth: number } }
+): { world: World; stats: Record<string, number>; notes: string[] } {
   const allLats: number[] = [];
   const allLons: number[] = [];
   for (const r of bundle.roads) for (const [la, lo] of r.points) { allLats.push(la); allLons.push(lo); }
   for (const b of bundle.buildings) for (const [la, lo] of b.polygon) { allLats.push(la); allLons.push(lo); }
-  if (!allLats.length) {
+  if (!allLats.length && !opts?.origin) {
     return {
       world: emptyWorld(),
       stats: { roads: 0, buildings: 0, facilities: 0 },
       notes: ["The provider returned no usable geometry for this area."],
     };
   }
-  const lat0 = (Math.min(...allLats) + Math.max(...allLats)) / 2;
-  const lon0 = (Math.min(...allLons) + Math.max(...allLons)) / 2;
+  const lat0 = opts?.origin ? opts.origin.lat : (Math.min(...allLats) + Math.max(...allLats)) / 2;
+  const lon0 = opts?.origin ? opts.origin.lon : (Math.min(...allLons) + Math.max(...allLons)) / 2;
   const kx = Math.cos((lat0 * Math.PI) / 180) * 111320;
 
   const proj = (la: number, lo: number): { x: number; z: number } => ({
@@ -139,7 +143,7 @@ export function convertOsmToWorld(bundle: OsmFeatureBundle): { world: World; sta
   const depth = Math.min(4000, (zsAll.length ? Math.max(...zsAll) - Math.min(...zsAll) : 320) + pad * 2);
 
   const world: World = {
-    bounds: { width: Math.max(200, width), depth: Math.max(200, depth) },
+    bounds: opts?.bounds ?? { width: Math.max(200, width), depth: Math.max(200, depth) },
     roads,
     buildings,
     facilities,

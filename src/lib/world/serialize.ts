@@ -4,7 +4,7 @@
  * rejected with a human-readable reason.
  */
 
-import type { PraesidiumProject, World } from "./types";
+import type { PraesidiumProject, ProjectGeo, SiteLayers, World } from "./types";
 import { WORLD_SCHEMA_VERSION } from "./types";
 import { defaultScenario } from "./types";
 
@@ -154,6 +154,7 @@ export function parseProject(raw: unknown): ParseResult {
         active: bool(g.active, true),
       });
     }
+    if (isObj(w.site)) world.site = parseSite(w.site);
   } catch {
     return { ok: false, error: "World data is malformed and could not be read." };
   }
@@ -172,7 +173,7 @@ export function parseProject(raw: unknown): ParseResult {
     modifiedAt: str(raw.modifiedAt) || now,
     source:
       isObj(raw.source) && raw.source.kind === "osm"
-        ? { kind: "osm", attribution: str((raw.source as Record<string, unknown>).attribution) || "© OpenStreetMap contributors", importedAt: str((raw.source as Record<string, unknown>).importedAt) || undefined }
+        ? { kind: "osm", attribution: str((raw.source as Record<string, unknown>).attribution) || "© OpenStreetMap contributors", importedAt: str((raw.source as Record<string, unknown>).importedAt) || undefined, geo: parseGeo((raw.source as Record<string, unknown>).geo) }
         : isObj(raw.source) && raw.source.kind === "demo"
           ? { kind: "demo" }
           : { kind: "blank" },
@@ -184,8 +185,56 @@ export function parseProject(raw: unknown): ParseResult {
   return { ok: true, project };
 }
 
+function parseGeo(g: unknown): ProjectGeo | undefined {
+  if (!isObj(g) || !Array.isArray(g.bbox) || g.bbox.length !== 4) return undefined;
+  const bbox = g.bbox.map((v) => num(v, NaN));
+  if (!bbox.every(Number.isFinite)) return undefined;
+  return {
+    lat: num(g.lat, (bbox[0] + bbox[1]) / 2),
+    lng: num(g.lng, (bbox[2] + bbox[3]) / 2),
+    bbox: bbox as [number, number, number, number],
+    placeName: str(g.placeName) || undefined,
+    societyType: str(g.societyType) || undefined,
+    summary: str(g.summary) || undefined,
+    satelliteImage: str(g.satelliteImage) || undefined,
+  };
+}
+
+function parseSite(s: Record<string, unknown>): SiteLayers {
+  const arr = (v: unknown) => (Array.isArray(v) ? v.filter(isObj) : []);
+  const pts = (v: unknown) => arr(v).map((p) => ({ x: num(p.x), z: num(p.z) }));
+  return {
+    walls: arr(s.walls)
+      .map((x, i) => ({ id: str(x.id) || `wl_${i}`, points: pts(x.points), closed: bool(x.closed, false), height: num(x.height, 2.4), inferred: bool(x.inferred, false) }))
+      .filter((x) => x.points.length >= 2),
+    gates: arr(s.gates).map((x, i) => ({
+      id: str(x.id) || `gt_${i}`,
+      name: str(x.name) || undefined,
+      kind: x.kind === "service" || x.kind === "pedestrian" ? x.kind : "main",
+      x: num(x.x),
+      z: num(x.z),
+      inferred: bool(x.inferred, false),
+    })),
+    areas: arr(s.areas).map((x, i) => ({
+      id: str(x.id) || `ar_${i}`,
+      kind: x.kind === "parking" || x.kind === "dark" ? x.kind : "open",
+      name: str(x.name) || undefined,
+      x: num(x.x),
+      z: num(x.z),
+      width: num(x.width, 10),
+      depth: num(x.depth, 10),
+      rotation: num(x.rotation),
+      note: str(x.note) || undefined,
+      inferred: bool(x.inferred, false),
+    })),
+    booths: arr(s.booths).map((x, i) => ({ id: str(x.id) || `bt_${i}`, x: num(x.x), z: num(x.z), note: str(x.note) || undefined, inferred: bool(x.inferred, false) })),
+  };
+}
+
 function normalizeScenario(s: Record<string, unknown>) {
-  const base = defaultScenario(s.id === "low_visibility_night" ? "low_visibility_night" : "typical_night");
+  const base = defaultScenario(
+    s.id === "low_visibility_night" || s.id === "high_risk_night" ? s.id : "typical_night"
+  );
   return {
     ...base,
     id: (s.id as never) ?? base.id,
@@ -203,6 +252,9 @@ function normalizeScenario(s: Record<string, unknown>) {
     ambientVisibility: Math.min(1, Math.max(0.2, num(s.ambientVisibility, base.ambientVisibility))),
     cctvRangeScale: Math.min(3, Math.max(0.2, num(s.cctvRangeScale, base.cctvRangeScale))),
     seed: Math.abs(num(s.seed, base.seed)) || base.seed,
+    perpCount: Math.min(20, Math.max(0, Math.round(num(s.perpCount, base.perpCount ?? 0)))),
+    guardFatigue: Math.min(1, Math.max(0, num(s.guardFatigue, base.guardFatigue ?? 0))),
+    ...(isObj(s.incidentMix) ? { incidentMix: s.incidentMix as Record<string, number> } : {}),
   };
 }
 

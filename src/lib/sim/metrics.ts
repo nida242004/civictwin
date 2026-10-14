@@ -125,6 +125,37 @@ export function computeMetrics(
     resolutionRatePct: round1(pct(resolved.length, events.length)),
     eventsByType,
     interventionCostInr,
+    ...dramaMetrics(sim),
+  };
+}
+
+function median(v: number[]): number | null {
+  if (!v.length) return null;
+  const s = v.slice().sort((a, b) => a - b);
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+}
+
+/** Perpetrator-incident metrics; empty object for legacy runs without drama. */
+function dramaMetrics(sim: SimulationResult): Partial<RunMetrics> {
+  const inc = sim.incidents ?? [];
+  if (!inc.length && !(sim.guardAsleepSec > 0) && !(sim.beats && sim.beats.length)) return {};
+  const pct = (n: number, d: number) => (d > 0 ? round1((n / d) * 100) : 0);
+  const detected = inc.filter((i) => i.detectedSec !== null);
+  const delays = detected.map((i) => i.detectedSec! - i.tStart);
+  const resp = inc
+    .filter((i) => i.detectedSec !== null && i.guardArrivalSec !== null)
+    .map((i) => Math.max(0, i.guardArrivalSec! - i.detectedSec!));
+  const md = median(delays);
+  const mr = median(resp);
+  return {
+    dramaIncidents: inc.length,
+    incidentsDetectedPct: pct(detected.length, inc.length),
+    detectedByCctvPct: pct(inc.filter((i) => i.detectedBy === "cctv").length, inc.length),
+    blindSpotIncidents: inc.filter((i) => i.blindSpot).length,
+    perpsCaughtPct: pct(inc.filter((i) => i.perpOutcome === "caught").length, inc.length),
+    medianDetectionDelaySec: md !== null ? Math.round(md) : null,
+    dramaMedianResponseSec: mr !== null ? Math.round(mr) : null,
+    guardAsleepMin: round1((sim.guardAsleepSec ?? 0) / 60),
   };
 }
 
@@ -171,6 +202,14 @@ export function compareRuns(baseline: RunMetrics, intervention: RunMetrics): Met
     { key: "routeCompletionPct", label: "Route completion rate", betterWhenLower: false, kind: "pct" },
     { key: "patrolCoveragePct", label: "Patrol coverage (40 m of waypoints)", betterWhenLower: false, kind: "pct" },
     { key: "avgRouteLengthM", label: "Average route length", betterWhenLower: true, kind: "number" },
+    { key: "dramaIncidents", label: "Perpetrator incidents (simulated)", betterWhenLower: true, kind: "number" },
+    { key: "incidentsDetectedPct", label: "Incidents detected", betterWhenLower: false, kind: "pct" },
+    { key: "detectedByCctvPct", label: "Incidents detected by CCTV", betterWhenLower: false, kind: "pct" },
+    { key: "blindSpotIncidents", label: "Incidents in CCTV blind spots", betterWhenLower: true, kind: "number" },
+    { key: "perpsCaughtPct", label: "Perpetrators caught", betterWhenLower: false, kind: "pct" },
+    { key: "medianDetectionDelaySec", label: "Median detection delay", betterWhenLower: true, kind: "time" },
+    { key: "dramaMedianResponseSec", label: "Median guard response (detection → on scene)", betterWhenLower: true, kind: "time" },
+    { key: "guardAsleepMin", label: "Guard time asleep (min)", betterWhenLower: true, kind: "number" },
   ];
   return rows
     .map((r) => {
@@ -179,7 +218,7 @@ export function compareRuns(baseline: RunMetrics, intervention: RunMetrics): Met
       const bs = fmtMetric(r.key, b, r.kind);
       const is = fmtMetric(r.key, i, r.kind);
       let delta = "—";
-      if (b !== null && i !== null) {
+      if (b != null && i != null) {
         const d = i - b;
         const kind = r.kind ?? "number";
         if (Math.abs(d) < 0.05) delta = "no change";

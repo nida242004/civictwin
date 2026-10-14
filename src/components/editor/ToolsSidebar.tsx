@@ -80,6 +80,8 @@ export default function ToolsSidebar() {
   const setFacilityType = useEditor((s) => s.setFacilityType);
   const layers = useEditor((s) => s.layers);
   const toggleLayer = useEditor((s) => s.toggleLayer);
+  const hasSatellite = useEditor((s) => Boolean(s.project?.source.geo?.satelliteImage));
+  const hasSite = useEditor((s) => Boolean(s.project?.world.site));
   const sceneTheme = useEditor((s) => s.sceneTheme) ?? "night";
   const setSceneTheme = useEditor((s) => s.setSceneTheme);
   const scenario = useEditor((s) => s.project?.scenario);
@@ -88,6 +90,9 @@ export default function ToolsSidebar() {
   const commitRoad = useEditor((s) => s.commitRoad);
   const cancelRoad = useEditor((s) => s.cancelRoad);
   const world = useEditor((s) => s.project?.world);
+  const locked = useEditor((s) => s.activeRun !== null);
+  const mode = useEditor((s) => s.mode);
+  const setMode = useEditor((s) => s.setMode);
 
   if (!scenario || !world) return null;
 
@@ -95,19 +100,25 @@ export default function ToolsSidebar() {
     <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-[#e3ded4] bg-[#faf8f4]">
       {/* tools */}
       <div className="border-b border-[#e9e4d8] p-3">
-        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[#8a8272]">Tools</div>
+        <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#8a8272]">
+          <span>Tools</span>
+          <span className={cn("rounded px-1.5 py-0.5 normal-case tracking-normal", locked ? "bg-[#fff1d6] text-[#8a6d1f]" : mode === "edit" ? "bg-[#e3f1ea] text-[#2e7d5b]" : "bg-[#eceff3] text-[#5c6470]")}>
+            {locked ? "Locked" : mode === "edit" ? "Edit mode" : "Navigate mode"}
+          </span>
+        </div>
         <div className="grid grid-cols-1 gap-1">
           {TOOLS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTool(t.id)}
+              disabled={locked && t.id !== "select"}
               className={cn(
-                "flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition",
-                tool === t.id
+                "flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-transparent disabled:hover:bg-transparent",
+                tool === t.id && mode === "edit" || (t.id === "select" && tool === "select")
                   ? "border-[#2e7d5b] bg-[#eef4f0] text-[#1d2430]"
                   : "border-transparent text-[#5c6470] hover:border-[#dcd6c8] hover:bg-white"
               )}
-              title={`${t.label} (${t.hint})`}
+              title={locked && t.id !== "select" ? "Locked while a simulation is loaded — exit to edit" : `${t.label} (${t.hint})`}
             >
               <span className="w-4 text-center text-sm">{t.icon}</span>
               <span className="flex-1">{t.label}</span>
@@ -268,11 +279,13 @@ export default function ToolsSidebar() {
             ["cctv", "CCTV fields of view", "Modeled camera FOV wedges"],
             ["coverage", "Coverage heat overlay", "Color walkable paths by modeled lighting coverage"],
             ["labels", "Labels & routes", "Facility labels and guard patrol routes"],
+            ["site", "Walls, gates & zones", "Compound wall, gates, parking and likely dark zones (AI-inferred)"],
+            ["satellite", "Satellite ground", "Show the captured satellite image under the scene"],
           ] as const
-        ).map(([key, label, title]) => (
+        ).filter(([key]) => (key !== "satellite" || hasSatellite) && (key !== "site" || hasSite)).map(([key, label, title]) => (
           <label key={key} className="flex cursor-pointer items-center justify-between py-1 text-xs" title={title}>
             <span className="text-[#5c6470]">{label}</span>
-            <input type="checkbox" checked={layers[key]} onChange={() => toggleLayer(key)} className="h-3.5 w-3.5 accent-[#2e7d5b]" />
+            <input type="checkbox" checked={!!layers[key]} onChange={() => toggleLayer(key)} className="h-3.5 w-3.5 accent-[#2e7d5b]" />
           </label>
         ))}
       </div>
@@ -284,3 +297,4 @@ export default function ToolsSidebar() {
     </aside>
   );
 }
+

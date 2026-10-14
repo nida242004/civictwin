@@ -6,6 +6,8 @@
  * of the world bounds. Simulation is fully independent of screen pixels.
  */
 
+import type { IncidentBeat, IncidentMix } from "../sim/incidents";
+
 export const WORLD_SCHEMA_VERSION = 1;
 export const ENGINE_VERSION = "1.0.0";
 
@@ -141,9 +143,59 @@ export interface World {
   streetlights: Streetlight[];
   cameras: CctvCamera[];
   guards: Guard[];
+  /** Optional site layers (compound walls, gates, etc.), usually AI-inferred from satellite imagery. */
+  site?: SiteLayers;
 }
 
-export type ScenarioId = "typical_night" | "low_visibility_night" | "custom";
+export interface SiteWall {
+  id: ID;
+  points: Vec2[];
+  /** Closed loop (boundary wall). */
+  closed?: boolean;
+  height: number;
+  inferred?: boolean;
+}
+
+export type GateKind = "main" | "service" | "pedestrian";
+
+export interface SiteGate {
+  id: ID;
+  name?: string;
+  kind: GateKind;
+  x: number;
+  z: number;
+  inferred?: boolean;
+}
+
+export interface SiteArea {
+  id: ID;
+  kind: "parking" | "open" | "dark";
+  name?: string;
+  x: number;
+  z: number;
+  width: number;
+  depth: number;
+  rotation: number;
+  note?: string;
+  inferred?: boolean;
+}
+
+export interface SiteBooth {
+  id: ID;
+  x: number;
+  z: number;
+  note?: string;
+  inferred?: boolean;
+}
+
+export interface SiteLayers {
+  walls: SiteWall[];
+  gates: SiteGate[];
+  areas: SiteArea[];
+  booths: SiteBooth[];
+}
+
+export type ScenarioId = "typical_night" | "low_visibility_night" | "high_risk_night" | "custom";
 
 export interface ScenarioConfig {
   id: ScenarioId;
@@ -173,6 +225,16 @@ export interface ScenarioConfig {
   cctvRangeScale: number;
   /** Deterministic seed. */
   seed: number;
+  /**
+   * Number of synthetic perpetrator actors ("game mode"). Absent = 0, so
+   * projects saved before this field existed replay exactly as before.
+   * Ignored (treated as 0) when eventsPerHour is 0.
+   */
+  perpCount?: number;
+  /** Night-shift guard fatigue 0..1 (chance + earliness of dozing off). Absent = 0. */
+  guardFatigue?: number;
+  /** Relative weights of perpetrator archetypes. Absent = DEFAULT_INCIDENT_MIX. */
+  incidentMix?: IncidentMix;
 }
 
 export interface StoredRunEvent {
@@ -185,7 +247,7 @@ export interface StoredRunEvent {
   assignedGuardId: ID | null;
   guardArrivalSec: number | null;
   resolvedSec: number | null;
-  /** 'resolved' | 'open_at_end' | 'unreachable' | 'no_guard' */
+  /** 'resolved' | 'open_at_end' | 'unreachable' | 'no_guard' | 'perp_escaped' | 'escaped_on_cctv' (got away but recorded — traceable) */
   outcome: string;
   note: string;
 }
@@ -220,6 +282,15 @@ export interface RunMetrics {
   eventsByType: Record<string, number>;
   // cost (interventions only; null for baseline)
   interventionCostInr: number | null;
+  // perpetrator incidents ("game mode"; absent on legacy runs)
+  dramaIncidents?: number;
+  incidentsDetectedPct?: number;
+  detectedByCctvPct?: number;
+  blindSpotIncidents?: number;
+  perpsCaughtPct?: number;
+  medianDetectionDelaySec?: number | null;
+  dramaMedianResponseSec?: number | null;
+  guardAsleepMin?: number;
 }
 
 export interface StoredRun {
@@ -233,6 +304,8 @@ export interface StoredRun {
   world: World;
   events: StoredRunEvent[];
   metrics: RunMetrics;
+  /** Narrative beats (optional; regenerated deterministically on replay). */
+  beats?: IncidentBeat[];
   /** Frame data is NOT persisted; it is deterministically replayed. */
 }
 
@@ -240,6 +313,20 @@ export interface ProjectSource {
   kind: WorldSourceKind;
   attribution?: string;
   importedAt?: string;
+  geo?: ProjectGeo;
+}
+
+export interface ProjectGeo {
+  lat: number;
+  lng: number;
+  /** [south, north, west, east] in degrees. The world origin is the bbox center; world bounds match the bbox. */
+  bbox: [number, number, number, number];
+  placeName?: string;
+  societyType?: string;
+  /** Short AI description of the site. */
+  summary?: string;
+  /** Satellite JPEG covering exactly the bbox (data URL). */
+  satelliteImage?: string;
 }
 
 export interface PraesidiumProject {
@@ -272,7 +359,31 @@ export const COST_ASSUMPTIONS = {
 /* ------------------------------------------------------------------ */
 
 export function defaultScenario(id: ScenarioId = "typical_night"): ScenarioConfig {
+  if (id === "high_risk_night") {
+    return {
+      id,
+      name: "High-Risk Night",
+      description:
+        "Late, dark night: several synthetic perpetrators probe the society's blind spots, lights are failing, and tired night-shift guards may doze off. A stress test of the security setup — fictional scenario, not a prediction.",
+      startTime: "01:00",
+      durationSec: 1800,
+      population: 40,
+      residentRatio: 0.7,
+      pedestrianSpeed: 1.35,
+      guardCount: null,
+      guardSpeed: 1.15,
+      eventsPerHour: 4,
+      lightingOutageFraction: 0.2,
+      ambientVisibility: 0.75,
+      cctvRangeScale: 1,
+      seed: 913377,
+      perpCount: 6,
+      guardFatigue: 0.7,
+    };
+  }
   return {
+    perpCount: id === "low_visibility_night" ? 4 : 3,
+    guardFatigue: id === "low_visibility_night" ? 0.4 : 0.3,
     id,
     name: id === "low_visibility_night" ? "Low-Visibility Night" : "Typical Night",
     description:

@@ -11,9 +11,14 @@ import ToolsSidebar from "./ToolsSidebar";
 import Inspector from "./Inspector";
 import TimelineBar from "./TimelineBar";
 import NeighborhoodCanvas from "@/components/three/NeighborhoodCanvas";
-import { ResultsDialog, CompareDialog } from "./ResultsDialog";
+import dynamic from "next/dynamic";
+
+// recharts + the replay scene live in this chunk; load it only once a dialog opens
+const ResultsDialog = dynamic(() => import("./ResultsDialog").then((m) => m.ResultsDialog), { ssr: false });
+const CompareDialog = dynamic(() => import("./ResultsDialog").then((m) => m.CompareDialog), { ssr: false });
 import AssistantPanel from "./AssistantPanel";
 import ImportDialog from "./ImportDialog";
+import LocalIntelPanel from "./LocalIntelPanel";
 import { useEditor } from "@/lib/store/editor";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +26,13 @@ export default function EditorShell() {
   const showScenarioPanel = useEditor((s) => s.showScenarioPanel);
   const setScenarioPanel = useEditor((s) => s.setScenarioPanel);
   const [showInspector, setShowInspector] = useState(true);
+  // sticky "has been opened" flags so the dialog chunks load on first open only
+  const resultsOpen = useEditor((s) => s.resultsOpen);
+  const compareOpen = useEditor((s) => s.compareOpen);
+  const [everResults, setEverResults] = useState(false);
+  const [everCompare, setEverCompare] = useState(false);
+  useEffect(() => { if (resultsOpen) setEverResults(true); }, [resultsOpen]);
+  useEffect(() => { if (compareOpen) setEverCompare(true); }, [compareOpen]);
 
   useEffect(() => {
     (window as any).__praesidiumEditor = useEditor;
@@ -30,7 +42,12 @@ export default function EditorShell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (el?.tagName?.match(/INPUT|TEXTAREA|SELECT/)) return;
+      // sliders/checkboxes keep focus after use; they have no text undo of their own
+      const textField =
+        el?.tagName?.match(/TEXTAREA|SELECT/) ||
+        (el?.tagName === "INPUT" && !["range", "checkbox", "radio", "button"].includes((el as HTMLInputElement).type)) ||
+        el?.isContentEditable;
+      if (textField) return;
       const s = useEditor.getState();
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -72,8 +89,12 @@ export default function EditorShell() {
         case "enter":
           if (s.tool === "road" && s.roadDraft.length >= 2) s.commitRoad();
           break;
+        case "e":
+          if (!e.ctrlKey && !e.metaKey && !e.altKey) s.setMode(s.mode === "edit" ? "navigate" : "edit");
+          break;
         case "escape":
           if (s.roadDraft.length) s.cancelRoad();
+          else if (s.mode === "edit") s.setMode("navigate");
           else if (s.selection) s.select(null);
           break;
       }
@@ -132,10 +153,12 @@ export default function EditorShell() {
       </div>
       <TimelineBar />
 
-      <ResultsDialog />
-      <CompareDialog />
+      {everResults && <ResultsDialog />}
+      {everCompare && <CompareDialog />}
       <ImportDialog />
       <AssistantPanel />
+      <LocalIntelPanel />
     </div>
   );
 }
+

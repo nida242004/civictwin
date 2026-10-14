@@ -8,6 +8,7 @@
 import { useEditor, playbackClock } from "@/lib/store/editor";
 import { executeRun, replayStoredRun } from "@/lib/sim/runner";
 import { compareRuns } from "@/lib/sim/metrics";
+import { ablateSync, headlineDiff, type AblationResult, type Headline } from "@/lib/sim/compare";
 import { deepClone } from "@/lib/world/ids";
 import type { PraesidiumProject, StoredRun } from "@/lib/world/types";
 import { applyProposal, type Proposal } from "@/lib/ai/schema";
@@ -107,6 +108,8 @@ export interface ReportData {
   baseline: StoredRun;
   intervention: StoredRun | null;
   comparison: ReturnType<typeof compareRuns>;
+  ablation: AblationResult | null;
+  headline: Headline | null;
   generatedAt: string;
 }
 
@@ -120,6 +123,8 @@ export function prepareReportData(): ReportData | null {
     baseline,
     intervention,
     comparison: intervention ? compareRuns(baseline.metrics, intervention.metrics) : [],
+    ablation: intervention ? ablateSync(baseline, intervention) : null,
+    headline: intervention ? headlineDiff(baseline, intervention) : null,
     generatedAt: new Date().toISOString(),
   };
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { geminiConfigured as hasGemini } from "@/lib/ai/gemini";
 
 export const dynamic = "force-dynamic";
 
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
  * Never exposes secret values, only whether they are configured.
  */
 export async function GET() {
-  const geminiConfigured = Boolean(process.env.GEMINI_API_KEY);
+  const geminiConfigured = hasGemini();
   const zaiConfigured = true; // z-ai-web-dev-sdk is bundled with the runtime
   const osmConfigured = true; // public endpoints with optional env overrides
 

@@ -64,3 +64,4 @@ worklog.md
 *.pid
 *.db
 *.db-journal
+/.next-prod/

@@ -24,6 +24,9 @@ import {
 import { dist } from "../world/ids";
 import { makeRng, type Rng } from "./rng";
 import { applyOutages, computeCoverage, type CoverageResult } from "./scenarios";
+import { advanceAlong, positionOf } from "./walk";
+import { GUARD_CONDITION, type IncidentBeat, type IncidentRecord, type DramaFrame } from "./incidents";
+import { DramaDirector, dramaEnabled } from "./drama";
 
 export const AGENT_STATE = { WAITING: 0, WALKING: 1, ARRIVED: 2, CANCELLED: 3 } as const;
 export const GUARD_STATE = { PATROLLING: 0, RESPONDING: 1, ON_SCENE: 2, RETURNING: 3, UNAVAILABLE: 4 } as const;
@@ -44,6 +47,12 @@ export interface Frame {
   agentStarted: Uint8Array; // 1 once the agent's trip has started
   guardPos: Float32Array;
   guardState: Uint8Array;
+  /* ---- optional incident-drama fields (present only when drama is enabled) ---- */
+  perpPos?: DramaFrame["perpPos"];
+  perpState?: DramaFrame["perpState"];
+  perpKind?: DramaFrame["perpKind"];
+  agentDrama?: DramaFrame["agentDrama"];
+  guardCondition?: DramaFrame["guardCondition"];
 }
 
 export interface TripRecord {
@@ -61,68 +70,19 @@ export interface SimulationResult {
   trips: TripRecord[];
   guardCount: number;
   unreachableDestinations: string[];
+  /** Narrative beats, sorted by tSec (empty when drama is disabled). */
+  beats: IncidentBeat[];
+  /** One record per perpetrator incident (attack started). */
+  incidents: IncidentRecord[];
+  /** Guard-seconds spent ASLEEP during the run. */
+  guardAsleepSec: number;
 }
 
 /* ------------------------------------------------------------------ */
 /* Runtime structures                                                  */
 /* ------------------------------------------------------------------ */
 
-interface WalkRef {
-  segIdx: number;
-  segT: number;
-}
-
-/** Advance `d` meters along a polyline, mutating the segment reference. */
-function advanceAlong(
-  path: { x: number; z: number }[],
-  ref: WalkRef,
-  d: number
-): { finished: boolean; x: number; z: number } {
-  if (path.length === 0) return { finished: true, x: 0, z: 0 };
-  if (path.length === 1) return { finished: true, x: path[0].x, z: path[0].z };
-  let i = ref.segIdx;
-  let t = ref.segT;
-  if (i >= path.length - 1) {
-    const last = path[path.length - 1];
-    return { finished: true, x: last.x, z: last.z };
-  }
-  while (d > 0 && i < path.length - 1) {
-    const a = path[i];
-    const b = path[i + 1];
-    const len = dist(a.x, a.z, b.x, b.z);
-    const remain = len - t;
-    if (d < remain) {
-      t += d;
-      d = 0;
-    } else {
-      d -= remain;
-      i += 1;
-      t = 0;
-    }
-  }
-  if (i >= path.length - 1) {
-    ref.segIdx = path.length - 2;
-    ref.segT = 0;
-    const last = path[path.length - 1];
-    return { finished: true, x: last.x, z: last.z };
-  }
-  ref.segIdx = i;
-  ref.segT = t;
-  const a = path[i];
-  const b = path[i + 1];
-  const len = Math.max(dist(a.x, a.z, b.x, b.z), 1e-6);
-  const tt = Math.min(t / len, 1);
-  return { finished: false, x: a.x + (b.x - a.x) * tt, z: a.z + (b.z - a.z) * tt };
-}
-
-function positionOf(path: { x: number; z: number }[], ref: WalkRef): { x: number; z: number } {
-  if (!path.length) return { x: 0, z: 0 };
-  if (path.length === 1) return { x: path[0].x, z: path[0].z };
-  const r = advanceAlong(path, ref, 0);
-  return { x: r.x, z: r.z };
-}
-
-interface AgentRT {
+export interface AgentRT {
   category: "resident" | "commuter";
   speed: number;
   spawnAt: number;
@@ -140,9 +100,11 @@ interface AgentRT {
   returnTripRecord: number;
   originRef: string;
   destRef: string;
+  /** true while the incident director controls this agent (victim). */
+  dramaLock: boolean;
 }
 
-interface GuardRT {
+export interface GuardRT {
   def: Guard;
   speed: number;
   state: number;
@@ -153,17 +115,26 @@ interface GuardRT {
   segT: number;
   dwellUntil: number;
   assignedEvent: string | null;
+  /** GUARD_CONDITION (fatigue). */
+  cond: number;
+  /** When > 0 and asleep: the time the guard wakes up (radio call). */
+  wakeAt: number;
+  /** Running (drama response) — speed multiplier applies. */
+  sprint: boolean;
+  chaseAt: number;
 }
 
-interface EventRT {
+export interface EventRT {
   sched: EventScheduleItem;
   assignedGuard: number | null;
   arrival: number | null;
   resolved: number | null;
   outcome: "open" | "assigned" | "unreachable";
+  /** true for perpetrator incidents created by the incident director. */
+  drama?: boolean;
 }
 
-interface EventScheduleItem {
+export interface EventScheduleItem {
   id: string;
   t: number;
   type: string;
@@ -209,6 +180,10 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
       segT: 0,
       dwellUntil: 0,
       assignedEvent: null,
+      cond: GUARD_CONDITION.ALERT,
+      wakeAt: 0,
+      sprint: false,
+      chaseAt: 0,
     };
   });
 
@@ -246,8 +221,15 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
       guardPos[i * 2 + 1] = p.z;
       guardState[i] = g.state;
     });
-    frames.push({ t, agentPos, agentState, agentCat, agentStarted, guardPos, guardState });
+    const frame: Frame = { t, agentPos, agentState, agentCat, agentStarted, guardPos, guardState };
+    if (drama) Object.assign(frame, drama.frame());
+    frames.push(frame);
   };
+
+  /* ------- incident director (synthetic perpetrators, fatigue) ------- */
+  const drama = dramaEnabled(scenario)
+    ? new DramaDirector({ world: effWorld, scenario, graph, coverage, duration, agents, guards, eventRt })
+    : null;
 
   recordFrame(0);
 
@@ -283,7 +265,7 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
     /* --- agents walk --- */
     for (let ai = 0; ai < agents.length; ai++) {
       const a = agents[ai];
-      if (a.state !== AGENT_STATE.WALKING) continue;
+      if (a.state !== AGENT_STATE.WALKING || a.dramaLock) continue;
       const res = advanceAlong(a.path, a, a.speed);
       if (res.finished) {
         if (a.phase === "out") {
@@ -302,6 +284,9 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
       }
     }
 
+    /* --- incident director: fatigue, perps, victims, detection, catches --- */
+    if (drama) drama.step(t);
+
     /* --- guards --- */
     for (const g of guards) stepGuard(g, t, eventRt, graph);
 
@@ -309,14 +294,17 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
     for (const [, rt] of eventRt) {
       if (rt.outcome !== "open") continue;
       if (rt.sched.t > t) continue;
-      tryAssignEvent(rt, guards, graph);
+      tryAssignEvent(rt, guards, graph, t, eventRt);
     }
+
+    if (drama) drama.post(t);
 
     recordFrame(t);
   }
 
   /* ---------------- finalize event records ---------------- */
   const storedEvents: StoredRunEvent[] = events.map((e) => {
+    // legacy abstract events only; perpetrator incidents are finalized by the director
     const rt = eventRt.get(e.id)!;
     let outcome: string;
     let note: string;
@@ -351,6 +339,11 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
     };
   });
 
+  const dramaOut = drama ? drama.finalize() : null;
+  const allEvents = dramaOut
+    ? [...storedEvents, ...dramaOut.events].sort((a, b) => a.tSec - b.tSec)
+    : storedEvents;
+
   const unreachableDestinations = Array.from(
     new Set(agents.filter((a) => !a.reachable).map((a) => a.destRef))
   );
@@ -360,10 +353,13 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
     seed: scenario.seed,
     durationSec: duration,
     frames,
-    events: storedEvents,
+    events: allEvents,
     trips: tripRecords,
     guardCount: guards.length,
     unreachableDestinations,
+    beats: dramaOut ? dramaOut.beats : [],
+    incidents: dramaOut ? dramaOut.incidents : [],
+    guardAsleepSec: dramaOut ? dramaOut.guardAsleepSec : 0,
   };
 }
 
@@ -528,6 +524,7 @@ function spawnAgents(
       returnTripRecord: -1,
       originRef: origin.ref,
       destRef: dest.ref,
+      dramaLock: false,
     });
     firstTripRecords.push({ reachable, lengthM: length, completed: false });
   }
@@ -594,7 +591,16 @@ function generateEvents(
   return events;
 }
 
-function tryAssignEvent(rt: EventRT, guards: GuardRT[], graph: NavGraph) {
+/** Seconds before an asleep guard answers a radio dispatch. */
+export const RADIO_WAKE_DELAY_SEC = 75;
+
+function tryAssignEvent(
+  rt: EventRT,
+  guards: GuardRT[],
+  graph: NavGraph,
+  t: number,
+  eventRt?: Map<string, EventRT>
+) {
   const e = rt.sched;
   if (e.node < 0) {
     e.node = nearestRoutableNode(graph, e.x, e.z) ?? -1;
@@ -603,14 +609,43 @@ function tryAssignEvent(rt: EventRT, guards: GuardRT[], graph: NavGraph) {
     rt.outcome = "unreachable";
     return;
   }
-  const cand = guards
+  const free = (g: GuardRT) => g.state === GUARD_STATE.PATROLLING || g.state === GUARD_STATE.RETURNING;
+  let cand = guards
     .map((g, i) => ({ g, i }))
-    .filter(({ g }) => g.state === GUARD_STATE.PATROLLING || g.state === GUARD_STATE.RETURNING)
-    .sort(
+    .filter(({ g }) => free(g) && g.cond !== GUARD_CONDITION.ASLEEP);
+  let radioWake = false;
+  let preempt = false;
+  if (!cand.length && rt.drama && eventRt) {
+    // a live perpetrator incident outranks routine (legacy) calls: pull a busy guard off one
+    cand = guards
+      .map((g, i) => ({ g, i }))
+      .filter(({ g }) => {
+        if (g.cond === GUARD_CONDITION.ASLEEP || !g.assignedEvent) return false;
+        if (g.state !== GUARD_STATE.RESPONDING && g.state !== GUARD_STATE.ON_SCENE) return false;
+        return !eventRt.get(g.assignedEvent)?.drama;
+      });
+    preempt = cand.length > 0;
+  }
+  if (!cand.length && rt.drama) {
+    // every free guard is asleep: the control room radios the nearest one
+    cand = guards.map((g, i) => ({ g, i })).filter(({ g }) => free(g));
+    radioWake = cand.length > 0;
+  }
+  if (rt.drama) {
+    // drama incidents: rank by actual current position
+    const dd = new Map<number, number>();
+    for (const c of cand) {
+      const p = positionOf(c.g.path, c.g);
+      dd.set(c.i, dist(p.x, p.z, e.x, e.z));
+    }
+    cand.sort((a, b) => dd.get(a.i)! - dd.get(b.i)! || a.i - b.i);
+  } else {
+    cand.sort(
       (a, b) =>
         dist(a.g.path[0]?.x ?? 0, a.g.path[0]?.z ?? 0, e.x, e.z) -
         dist(b.g.path[0]?.x ?? 0, b.g.path[0]?.z ?? 0, e.x, e.z)
     );
+  }
   if (!cand.length) return; // stays open; retried each step
   for (const { g, i } of cand) {
     const pos = positionOf(g.path, g);
@@ -623,8 +658,22 @@ function tryAssignEvent(rt: EventRT, guards: GuardRT[], graph: NavGraph) {
     g.path = pts;
     g.segIdx = 0;
     g.segT = 0;
+    if (preempt && g.assignedEvent && eventRt) {
+      const old = eventRt.get(g.assignedEvent);
+      if (old) {
+        if (old.arrival !== null) {
+          if (old.resolved === null) old.resolved = t; // handed over after attending
+        } else {
+          old.assignedGuard = null;
+          old.outcome = "open"; // re-queued for the next free guard
+        }
+      }
+    }
     g.state = GUARD_STATE.RESPONDING;
     g.assignedEvent = e.id;
+    g.sprint = !!rt.drama;
+    g.chaseAt = t;
+    if (radioWake && g.cond === GUARD_CONDITION.ASLEEP) g.wakeAt = t + RADIO_WAKE_DELAY_SEC;
     rt.assignedGuard = i;
     rt.outcome = "assigned";
     return;
@@ -634,9 +683,10 @@ function tryAssignEvent(rt: EventRT, guards: GuardRT[], graph: NavGraph) {
 
 function stepGuard(g: GuardRT, t: number, eventRt: Map<string, EventRT>, graph: NavGraph) {
   if (g.state === GUARD_STATE.UNAVAILABLE) return;
+  if (g.cond === GUARD_CONDITION.ASLEEP) return; // dozing: does not move
 
   if (g.state === GUARD_STATE.RESPONDING) {
-    const res = advanceAlong(g.path, g, g.speed);
+    const res = advanceAlong(g.path, g, g.speed * (g.sprint ? 1.8 : 1));
     if (res.finished) {
       g.state = GUARD_STATE.ON_SCENE;
       const rt = g.assignedEvent ? eventRt.get(g.assignedEvent) : null;
@@ -652,6 +702,7 @@ function stepGuard(g: GuardRT, t: number, eventRt: Map<string, EventRT>, graph: 
       const rt = g.assignedEvent ? eventRt.get(g.assignedEvent) : null;
       if (rt && rt.resolved === null) rt.resolved = t;
       g.assignedEvent = null;
+      g.sprint = false;
       // route back to the patrol leg we left
       const wp = g.patrolLegs[g.legIdx]?.[0];
       const pos = positionOf(g.path, g);
@@ -680,8 +731,8 @@ function stepGuard(g: GuardRT, t: number, eventRt: Map<string, EventRT>, graph: 
     return;
   }
 
-  // PATROLLING / RETURNING
-  const res = advanceAlong(g.path, g, g.speed);
+  // PATROLLING / RETURNING (drowsy guards shuffle along slower)
+  const res = advanceAlong(g.path, g, g.speed * (g.cond === GUARD_CONDITION.DROWSY ? 0.7 : 1));
   if (res.finished) {
     if (g.state === GUARD_STATE.RETURNING) {
       g.state = GUARD_STATE.PATROLLING;
