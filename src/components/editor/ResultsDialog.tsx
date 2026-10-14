@@ -1,0 +1,466 @@
+"use client";
+
+/**
+ * Results dashboard + baseline/intervention comparison.
+ * Every number is computed from the stored runs — never hardcoded.
+ */
+
+import { useMemo } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { useEditor } from "@/lib/store/editor";
+import { compareRuns, fmtMetric } from "@/lib/sim/metrics";
+import { loadStoredRun } from "@/lib/run-actions";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  Legend,
+} from "recharts";
+
+function MetricCard({
+  label,
+  value,
+  sub,
+  tone = "neutral",
+  tag,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  tone?: "good" | "warn" | "bad" | "neutral";
+  tag?: string;
+}) {
+  const toneCls =
+    tone === "good"
+      ? "text-[#2e7d5b]"
+      : tone === "warn"
+        ? "text-[#b98a2f]"
+        : tone === "bad"
+          ? "text-[#c23b3b]"
+          : "text-[#1d2430]";
+  return (
+    <div className="rounded-lg border border-[#e3ded4] bg-white p-3">
+      <div className="flex items-start justify-between gap-1">
+        <div className="text-[10px] font-medium uppercase tracking-wide text-[#8a8272]">{label}</div>
+        {tag && <span className="rounded bg-[#f1ede4] px-1 py-0.5 text-[8px] uppercase text-[#8a8272]">{tag}</span>}
+      </div>
+      <div className={`mt-1 text-xl font-bold ${toneCls}`}>{value}</div>
+      {sub && <div className="mt-0.5 text-[10px] leading-tight text-[#8a8272]">{sub}</div>}
+    </div>
+  );
+}
+
+function pctTone(v: number, goodHigh = true): "good" | "warn" | "bad" {
+  const t = goodHigh ? v : 100 - v;
+  return t >= 70 ? "good" : t >= 40 ? "warn" : "bad";
+}
+
+export function ResultsDialog() {
+  const open = useEditor((s) => s.resultsOpen);
+  const setOpen = useEditor((s) => s.setResultsOpen);
+  const project = useEditor((s) => s.project);
+  const runKind = useEditor((s) => s.runKind);
+  const setCompareOpen = useEditor((s) => s.setCompareOpen);
+  const activeRun = useEditor((s) => s.activeRun);
+
+  const run = runKind === "intervention" ? project?.interventionRun : project?.baselineRun;
+  const m = run?.metrics;
+
+  const eventsOverTime = useMemo(() => {
+    if (!run) return [];
+    const dur = run.scenario.durationSec;
+    const step = Math.max(30, Math.round(dur / 40));
+    const out: { t: number; cumulative: number }[] = [];
+    for (let t = step; t <= dur; t += step) {
+      out.push({ t, cumulative: run.events.filter((e) => e.tSec <= t).length });
+    }
+    return out;
+  }, [run]);
+
+  const typeData = useMemo(() => {
+    if (!m) return [];
+    return Object.entries(m.eventsByType).map(([type, n]) => ({ type: type.replace(/_/g, " "), count: n }));
+  }, [m]);
+
+  if (!project || !m || !run) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Results</DialogTitle>
+            <DialogDescription>Simulation results and metric breakdown.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-[#5c6470]">
+            <p>No simulation results yet. Run a baseline simulation from the top bar first.</p>
+            <p className="text-xs text-[#8a8272]">
+              The baseline preserves the exact world, scenario and seed used — later edits never
+              silently rewrite it.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-h-[88vh] overflow-y-auto bg-[#f7f5f1] sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-[#1d2430]">
+            Results — {run.label}
+            <span className="rounded bg-[#eef4f0] px-2 py-0.5 text-[10px] font-medium text-[#2e7d5b]">
+              seed {run.seed} · engine {run.engineVersion}
+            </span>
+          </DialogTitle>
+          <DialogDescription className="text-xs text-[#5c6470]">
+            Detailed safety metrics, lit path coverage, and incident breakdown for this simulation run.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 text-sm">
+          {/* metric cards */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <MetricCard
+              label="Lit path coverage"
+              value={`${m.pathLenLitPct.toFixed(1)}%`}
+              sub={`${m.poorlyLitSegments}/${m.segmentsTotal} segments below 50%`}
+              tone={pctTone(m.pathLenLitPct)}
+              tag="modeled"
+            />
+            <MetricCard
+              label="CCTV coverage"
+              value={`${m.cctvCoveragePct.toFixed(1)}%`}
+              sub={`${m.uncoveredSegments} segments with no coverage`}
+              tone={pctTone(m.cctvCoveragePct)}
+              tag="modeled"
+            />
+            <MetricCard
+              label="Est. avg response"
+              value={m.avgResponseSec !== null ? `${m.avgResponseSec} s` : "—"}
+              sub={m.medianResponseSec !== null ? `median ${m.medianResponseSec} s` : "no responses"}
+              tone={m.avgResponseSec === null ? "neutral" : m.avgResponseSec < 150 ? "good" : m.avgResponseSec < 300 ? "warn" : "bad"}
+              tag="estimated"
+            />
+            <MetricCard
+              label="Resolution rate"
+              value={`${m.resolutionRatePct.toFixed(1)}%`}
+              sub={`${m.unresolvedEvents} unresolved of ${m.eventsTotal}`}
+              tone={pctTone(m.resolutionRatePct)}
+              tag="simulated"
+            />
+            <MetricCard
+              label="Reachable trips"
+              value={`${m.tripsReachablePct.toFixed(1)}%`}
+              sub={`${m.unreachableTrips} unreachable`}
+              tone={pctTone(m.tripsReachablePct)}
+              tag="simulated"
+            />
+            <MetricCard
+              label="Route completion"
+              value={`${m.routeCompletionPct.toFixed(1)}%`}
+              sub={`avg route ${m.avgRouteLengthM} m`}
+              tone={pctTone(m.routeCompletionPct)}
+              tag="simulated"
+            />
+            <MetricCard
+              label="Events reached"
+              value={`${m.eventsReachedPct.toFixed(1)}%`}
+              sub={`${m.unreachableEvents} unreachable events`}
+              tone={pctTone(m.eventsReachedPct)}
+              tag="simulated"
+            />
+            <MetricCard
+              label="Patrol coverage"
+              value={m.patrolCoveragePct !== null ? `${m.patrolCoveragePct.toFixed(1)}%` : "—"}
+              sub="walkable length within 40 m of patrol waypoints"
+              tone={m.patrolCoveragePct === null ? "neutral" : pctTone(m.patrolCoveragePct)}
+              tag="modeled"
+            />
+          </div>
+
+          {/* charts */}
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="rounded-lg border border-[#e3ded4] bg-white p-3">
+              <div className="mb-2 text-xs font-semibold text-[#1d2430]">Cumulative simulated events over time</div>
+              <div className="h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={eventsOverTime} margin={{ top: 5, right: 10, bottom: 0, left: -20 }}>
+                    <CartesianGrid stroke="#eee9df" />
+                    <XAxis dataKey="t" tick={{ fontSize: 10 }} unit="s" />
+                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip contentStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="cumulative" stroke="#b98a2f" strokeWidth={2} dot={false} name="events" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="rounded-lg border border-[#e3ded4] bg-white p-3">
+              <div className="mb-2 text-xs font-semibold text-[#1d2430]">Events by type (fictional scenario events)</div>
+              <div className="h-44">
+                {typeData.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-xs text-[#8a8272]">No simulated events occurred.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={typeData} margin={{ top: 5, right: 10, bottom: 0, left: -20 }}>
+                      <CartesianGrid stroke="#eee9df" />
+                      <XAxis dataKey="type" tick={{ fontSize: 9 }} interval={0} angle={-14} textAnchor="end" height={44} />
+                      <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                      <Tooltip contentStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="count" fill="#1d2430" radius={[3, 3, 0, 0]} name="events" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* assumptions */}
+          <div className="rounded-lg border border-[#e3ded4] bg-white p-3 text-[11px] leading-relaxed text-[#5c6470]">
+            <div className="mb-1 text-xs font-semibold text-[#1d2430]">Assumptions & uncertainty</div>
+            <ul className="list-disc space-y-0.5 pl-4">
+              <li>
+                Lighting: illumination = Σ brightness·(1−d/radius)<sup>1.5</sup> over active lamps; the lit
+                threshold rises as ambient visibility ({Math.round(run.scenario.ambientVisibility * 100)}%) falls. A geometric
+                approximation — not a photometric assessment.
+              </li>
+              <li>CCTV: a point is “covered” when within range × {run.scenario.cctvRangeScale.toFixed(2)} and the horizontal FOV cone. Coverage ≠ detection.</li>
+              <li>Events: seeded Poisson process at {run.scenario.eventsPerHour}/h expected — fictional scenario events, not crime predictions.</li>
+              <li>Response times: estimated from network travel distance at {run.scenario.guardSpeed} m/s; unreachable or unguarded cases are recorded explicitly, never averaged in.</li>
+              <li>Outcomes depend on scenario parameters, synthetic agents and geometry quality. Higher modeled coverage does not prove real crime reduction.</li>
+            </ul>
+          </div>
+
+          {/* actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            {activeRun?.id === run.id ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setOpen(false);
+                  loadStoredRun(run.label);
+                }}
+              >
+                Replay this run in the 3D view
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setOpen(false);
+                  loadStoredRun(run.label);
+                }}
+              >
+                Load this run in the 3D view
+              </Button>
+            )}
+            {project.interventionRun && (
+              <Button
+                size="sm"
+                className="bg-[#2e7d5b] text-white hover:bg-[#276c4f]"
+                onClick={() => {
+                  setOpen(false);
+                  setCompareOpen(true);
+                }}
+              >
+                Compare with baseline
+              </Button>
+            )}
+            <span className="ml-auto font-mono text-[10px] text-[#8a8272]">run {run.id}</span>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+export function CompareDialog() {
+  const open = useEditor((s) => s.compareOpen);
+  const setOpen = useEditor((s) => s.setCompareOpen);
+  const project = useEditor((s) => s.project);
+  const setResultsOpen = useEditor((s) => s.setResultsOpen);
+
+  const baseline = project?.baselineRun;
+  const intervention = project?.interventionRun;
+
+  const rows = useMemo(
+    () => (baseline && intervention ? compareRuns(baseline.metrics, intervention.metrics) : []),
+    [baseline, intervention]
+  );
+
+  const chartData = useMemo(
+    () =>
+      rows
+        .filter((r) => r.kind === "pct")
+        .map((r) => ({
+          metric: r.label.replace("Modeled ", "").replace(" (simulated)", ""),
+          Baseline: parseFloat(r.baseline) || 0,
+          Intervention: parseFloat(r.intervention) || 0,
+        })),
+    [rows]
+  );
+
+  if (!baseline || !intervention) {
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Compare runs</DialogTitle>
+            <DialogDescription>Comparison between baseline and intervention simulation runs.</DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-[#5c6470]">
+            You need both a baseline and an intervention run. Run a baseline first, change the
+            neighborhood or scenario, then “Run intervention” — it reuses the baseline seed for a
+            genuine like-for-like comparison.
+          </p>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const cost = intervention.metrics.interventionCostInr;
+  const litDelta = intervention.metrics.pathLenLitPct - baseline.metrics.pathLenLitPct;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="max-h-[88vh] overflow-y-auto bg-[#f7f5f1] sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="text-[#1d2430]">Baseline vs intervention</DialogTitle>
+          <DialogDescription className="text-xs text-[#5c6470]">
+            Side-by-side comparison of safety outcomes, coverage deltas, and intervention costs.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="rounded bg-white px-2 py-1 font-mono text-[#5c6470]">
+              baseline seed {baseline.seed}
+            </span>
+            <span className="rounded bg-white px-2 py-1 font-mono text-[#5c6470]">
+              intervention seed {intervention.seed}
+            </span>
+            {baseline.seed === intervention.seed ? (
+              <span className="rounded bg-[#eef4f0] px-2 py-1 font-medium text-[#2e7d5b]">
+                Same seed — like-for-like comparison
+              </span>
+            ) : (
+              <span className="rounded bg-[#fdf6e7] px-2 py-1 font-medium text-[#7a5d1e]">
+                Different seeds — interpret with care
+              </span>
+            )}
+            {cost !== null && (
+              <span className="rounded bg-white px-2 py-1 text-[#5c6470]">
+                Est. cost <b className="text-[#1d2430]">INR {cost.toLocaleString("en-IN")}</b>
+              </span>
+            )}
+          </div>
+
+          <div className="h-56 rounded-lg border border-[#e3ded4] bg-white p-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 4, right: 10, bottom: 0, left: -14 }}>
+                <CartesianGrid stroke="#eee9df" />
+                <XAxis dataKey="metric" tick={{ fontSize: 9 }} interval={0} />
+                <YAxis tick={{ fontSize: 10 }} unit="%" />
+                <Tooltip contentStyle={{ fontSize: 11 }} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="Baseline" fill="#8a8272" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="Intervention" fill="#2e7d5b" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-[#e3ded4] bg-white">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-[#e3ded4] bg-[#faf8f4] text-left text-[10px] uppercase tracking-wide text-[#8a8272]">
+                  <th className="px-3 py-2 font-medium">Metric</th>
+                  <th className="px-3 py-2 text-right font-medium">Baseline</th>
+                  <th className="px-3 py-2 text-right font-medium">Intervention</th>
+                  <th className="px-3 py-2 text-right font-medium">Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const b = baseline.metrics[r.key] as number | null;
+                  const i = intervention.metrics[r.key] as number | null;
+                  const improved =
+                    b !== null && i !== null
+                      ? r.betterWhenLower
+                        ? i < b - 0.05
+                        : i > b + 0.05
+                      : false;
+                  const worsened =
+                    b !== null && i !== null
+                      ? r.betterWhenLower
+                        ? i > b + 0.05
+                        : i < b - 0.05
+                      : false;
+                  return (
+                    <tr key={String(r.key)} className="border-b border-[#f1ede4] last:border-0">
+                      <td className="px-3 py-1.5 text-[#1d2430]">{r.label}</td>
+                      <td className="px-3 py-1.5 text-right text-[#5c6470]">{r.baseline}</td>
+                      <td className="px-3 py-1.5 text-right text-[#5c6470]">{r.intervention}</td>
+                      <td
+                        className={`px-3 py-1.5 text-right font-medium ${
+                          improved ? "text-[#2e7d5b]" : worsened ? "text-[#c23b3b]" : "text-[#8a8272]"
+                        }`}
+                      >
+                        {r.delta}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="rounded-lg border border-[#e3ded4] bg-white p-3 text-[11px] leading-relaxed text-[#5c6470]">
+            <b className="text-[#1d2430]">How to read this:</b> absolute values are shares of the
+            modeled walkable network or simulated outcomes; “pp” = percentage-point change. Higher
+            modeled coverage does not prove a real reduction in crime — results depend on scenario
+            parameters, synthetic agents, geometry quality and simplified assumptions.
+            {cost !== null && litDelta > 0.05 && (
+              <> Cost per percentage point of modeled lit coverage added: ≈ INR {Math.round(cost / litDelta).toLocaleString("en-IN")}.</>
+            )}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => { setOpen(false); setResultsOpen(true); }}>
+              Open full results
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setOpen(false);
+                loadStoredRun("baseline");
+              }}
+            >
+              Replay baseline in 3D
+            </Button>
+            <Button
+              size="sm"
+              className="bg-[#2e7d5b] text-white hover:bg-[#276c4f]"
+              onClick={() => {
+                setOpen(false);
+                loadStoredRun("intervention");
+              }}
+            >
+              Replay intervention in 3D
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

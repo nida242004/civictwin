@@ -1,0 +1,603 @@
+"use client";
+
+/**
+ * Central editor state (Zustand).
+ *
+ * Canvas playback time lives in a module-level mutable clock that the 3D
+ * scene reads every frame without triggering React re-renders. UI components
+ * that display time poll the clock on a light interval instead.
+ */
+
+import { create } from "zustand";
+import type {
+  CctvCamera,
+  Facility,
+  FacilityType,
+  Guard,
+  PraesidiumProject,
+  ScenarioConfig,
+  Streetlight,
+  Building,
+  Road,
+} from "@/lib/world/types";
+import { defaultScenario } from "@/lib/world/types";
+import { makeId, deepClone } from "@/lib/world/ids";
+import { makeDemoProject, DEMO_PROJECT_ID } from "@/lib/world/demo";
+import { makeBlankProject } from "@/lib/world/blank";
+import type { ActiveRun } from "@/lib/sim/runner";
+import { saveProject } from "@/lib/storage/projects";
+
+export type Tool =
+  | "select"
+  | "road"
+  | "building"
+  | "facility"
+  | "streetlight"
+  | "camera"
+  | "guard";
+
+export type Selection =
+  | { kind: "streetlight"; id: string }
+  | { kind: "camera"; id: string }
+  | { kind: "guard"; id: string }
+  | { kind: "building"; id: string }
+  | { kind: "facility"; id: string }
+  | { kind: "road"; id: string }
+  | null;
+
+export type Screen = "welcome" | "editor";
+
+export interface LayerVisibility {
+  lighting: boolean;
+  cctv: boolean;
+  coverage: boolean;
+  labels: boolean;
+}
+
+/** Module-level playback clock — read every animation frame by the 3D scene. */
+export const playbackClock = { t: 0 };
+
+/** Module-level live drag position — read every animation frame by dragged objects. */
+export const liveMove: { id: string | null; x: number; z: number } = { id: null, x: 0, z: 0 };
+
+export type DragKind = "streetlight" | "camera" | "facility" | "guard";
+
+export interface DragState {
+  kind: DragKind;
+  id: string;
+  offsetX: number;
+  offsetZ: number;
+  moved: boolean;
+  origin: { x: number; z: number };
+}
+
+interface EditorState {
+  screen: Screen;
+  project: PraesidiumProject | null;
+  dirty: boolean;
+  saving: boolean;
+  lastSavedAt: string | null;
+
+  tool: Tool;
+  selection: Selection;
+  roadDraft: { x: number; z: number }[];
+  facilityType: FacilityType;
+  dragState: DragState | null;
+
+  layers: LayerVisibility;
+  sceneTheme: "night" | "sunset" | "daylight";
+  showScenarioPanel: boolean;
+  resultsOpen: boolean;
+  compareOpen: boolean;
+  assistantOpen: boolean;
+  importOpen: boolean;
+
+  history: { past: PraesidiumProject[]; future: PraesidiumProject[] };
+
+  // playback
+  activeRun: ActiveRun | null;
+  runKind: "baseline" | "intervention" | "preview" | null;
+  playing: boolean;
+  speed: number;
+  displayT: number; // throttled mirror of playbackClock for UI
+
+  // actions
+  openWelcome: () => void;
+  openDemo: () => void;
+  newBlank: () => void;
+  openProject: (p: PraesidiumProject) => void;
+  resetDemo: () => void;
+  setScreen: (s: Screen) => void;
+
+  setTool: (t: Tool) => void;
+  setFacilityType: (t: FacilityType) => void;
+  select: (s: Selection) => void;
+  beginDrag: (kind: DragKind, id: string, offsetX: number, offsetZ: number) => void;
+  updateDrag: (x: number, z: number) => void;
+  endDrag: () => void;
+  moveMode: boolean;
+  setMoveMode: (v: boolean) => void;
+  setRoadDraft: (pts: { x: number; z: number }[]) => void;
+  pushRoadPoint: (p: { x: number; z: number }) => void;
+  commitRoad: () => void;
+  cancelRoad: () => void;
+
+  mutateWorld: (fn: (draft: PraesidiumProject) => void, opts?: { silent?: boolean }) => void;
+  addStreetlight: (x: number, z: number) => void;
+  addCamera: (x: number, z: number) => void;
+  addGuard: (x: number, z: number) => void;
+  addBuilding: (x: number, z: number) => void;
+  addFacility: (x: number, z: number) => void;
+  moveObject: (sel: NonNullable<Selection>, x: number, z: number) => void;
+  deleteSelected: () => void;
+
+  undo: () => void;
+  redo: () => void;
+  save: () => Promise<void>;
+  markSaved: () => void;
+  renameProject: (name: string) => void;
+
+  toggleLayer: (k: keyof LayerVisibility) => void;
+  setScenarioPanel: (v: boolean) => void;
+  setSceneTheme: (t: "night" | "sunset" | "daylight") => void;
+  setResultsOpen: (v: boolean) => void;
+  setCompareOpen: (v: boolean) => void;
+  setAssistantOpen: (v: boolean) => void;
+  setImportOpen: (v: boolean) => void;
+
+  updateScenario: (patch: Partial<ScenarioConfig>) => void;
+
+  setActiveRun: (run: ActiveRun | null, kind: EditorState["runKind"]) => void;
+  setPlaying: (v: boolean) => void;
+  setSpeed: (v: number) => void;
+  seek: (t: number) => void;
+  tickDisplay: () => void;
+}
+
+const HISTORY_LIMIT = 50;
+
+export const useEditor = create<EditorState>((set, get) => ({
+  screen: "welcome",
+  project: null,
+  dirty: false,
+  saving: false,
+  lastSavedAt: null,
+
+  tool: "select",
+  selection: null,
+  roadDraft: [],
+  facilityType: "bus_stop",
+  dragState: null,
+  moveMode: false,
+
+  layers: { lighting: true, cctv: true, coverage: false, labels: true },
+  sceneTheme: "night",
+  showScenarioPanel: true,
+  resultsOpen: false,
+  compareOpen: false,
+  assistantOpen: false,
+  importOpen: false,
+
+  history: { past: [], future: [] },
+
+  activeRun: null,
+  runKind: null,
+  playing: false,
+  speed: 1,
+  displayT: 0,
+
+  openWelcome: () => set({ screen: "welcome" }),
+  setScreen: (s) => set({ screen: s }),
+
+  openDemo: () => {
+    const p = makeDemoProject();
+    set({
+      screen: "editor",
+      project: p,
+      dirty: false,
+      selection: null,
+      tool: "select",
+      roadDraft: [],
+      history: { past: [], future: [] },
+      activeRun: null,
+      runKind: null,
+      playing: false,
+    });
+    playbackClock.t = 0;
+    void get().save();
+  },
+
+  newBlank: () => {
+    const p = makeBlankProject();
+    set({
+      screen: "editor",
+      project: p,
+      dirty: false,
+      selection: null,
+      tool: "select",
+      roadDraft: [],
+      history: { past: [], future: [] },
+      activeRun: null,
+      runKind: null,
+      playing: false,
+    });
+    playbackClock.t = 0;
+    void get().save();
+  },
+
+  openProject: (p) => {
+    set({
+      screen: "editor",
+      project: p,
+      dirty: false,
+      selection: null,
+      tool: "select",
+      roadDraft: [],
+      history: { past: [], future: [] },
+      activeRun: null,
+      runKind: null,
+      playing: false,
+    });
+    playbackClock.t = 0;
+  },
+
+  resetDemo: () => {
+    const cur = get().project;
+    if (!cur) return;
+    const fresh = makeDemoProject();
+    fresh.projectId = cur.projectId; // replace in place
+    fresh.name = cur.name === DEMO_NAME_DEFAULT ? fresh.name : cur.name;
+    set((s) => ({
+      project: fresh,
+      dirty: true,
+      history: { past: [...s.history.past, deepClone(s.project!)].slice(-HISTORY_LIMIT), future: [] },
+      activeRun: null,
+      runKind: null,
+      playing: false,
+      selection: null,
+    }));
+    playbackClock.t = 0;
+  },
+
+  setTool: (t) => set({ tool: t, roadDraft: [], moveMode: false }),
+  setFacilityType: (t) => set({ facilityType: t }),
+  select: (sel) => set({ selection: sel, tool: sel ? "select" : get().tool, moveMode: false }),
+
+  beginDrag: (kind, id, offsetX, offsetZ) => {
+    const sel =
+      kind === "streetlight"
+        ? get().project?.world.streetlights.find((o) => o.id === id)
+        : kind === "camera"
+          ? get().project?.world.cameras.find((o) => o.id === id)
+          : kind === "guard"
+            ? get().project?.world.guards.find((o) => o.id === id)
+            : get().project?.world.facilities.find((o) => o.id === id);
+    const origin = sel ? { x: (sel as { x: number; z: number }).x, z: (sel as { x: number; z: number }).z } : { x: 0, z: 0 };
+    liveMove.id = null;
+    set({ dragState: { kind, id, offsetX, offsetZ, moved: false, origin } });
+  },
+
+  updateDrag: (x, z) => {
+    const ds = get().dragState;
+    if (!ds) return;
+    liveMove.id = ds.id;
+    liveMove.x = x + ds.offsetX;
+    liveMove.z = z + ds.offsetZ;
+    if (!ds.moved && (Math.abs(liveMove.x - ds.origin.x) > 0.5 || Math.abs(liveMove.z - ds.origin.z) > 0.5)) {
+      set({ dragState: { ...ds, moved: true } });
+    }
+  },
+
+  endDrag: () => {
+    const ds = get().dragState;
+    set({ dragState: null });
+    if (!ds) return;
+    if (liveMove.id === ds.id && ds.moved) {
+      const { x, z } = liveMove;
+      liveMove.id = null;
+      get().moveObject({ kind: ds.kind, id: ds.id } as never, x, z);
+    } else {
+      liveMove.id = null;
+    }
+  },
+
+  setMoveMode: (v) => set({ moveMode: v }),
+  setRoadDraft: (pts) => set({ roadDraft: pts }),
+  pushRoadPoint: (p) => set((s) => ({ roadDraft: [...s.roadDraft, p] })),
+  commitRoad: () => {
+    const { roadDraft, project } = get();
+    if (!project || roadDraft.length < 2) return;
+    const road: Road = {
+      id: makeId("rd"),
+      name: undefined,
+      points: deepClone(roadDraft),
+      width: 4,
+      category: "road",
+      pedestrian: true,
+    };
+    get().mutateWorld((d) => {
+      d.world.roads.push(road);
+    });
+    set({ roadDraft: [], selection: { kind: "road", id: road.id }, tool: "select" });
+  },
+  cancelRoad: () => set({ roadDraft: [] }),
+
+  mutateWorld: (fn, opts) => {
+    const { project } = get();
+    if (!project) return;
+    const draft = deepClone(project);
+    fn(draft);
+    draft.modifiedAt = new Date().toISOString();
+    if (!opts?.silent) {
+      set((s) => ({
+        project: draft,
+        dirty: true,
+        history: { past: [...s.history.past, project].slice(-HISTORY_LIMIT), future: [] },
+      }));
+    } else {
+      set({ project: draft, dirty: true });
+    }
+    scheduleAutosave(get, set);
+  },
+
+  addStreetlight: (x, z) => {
+    const l: Streetlight = {
+      id: makeId("sl"),
+      x,
+      z,
+      height: 8,
+      brightness: 0.85,
+      radius: 18,
+      on: true,
+      maintenance: "ok",
+    };
+    get().mutateWorld((d) => {
+      d.world.streetlights.push(l);
+    });
+    set({ selection: { kind: "streetlight", id: l.id } });
+  },
+
+  addCamera: (x, z) => {
+    const c: CctvCamera = {
+      id: makeId("cam"),
+      x,
+      z,
+      height: 6.5,
+      range: 28,
+      fovDeg: 80,
+      orientationDeg: 0,
+      active: true,
+    };
+    get().mutateWorld((d) => {
+      d.world.cameras.push(c);
+    });
+    set({ selection: { kind: "camera", id: c.id } });
+  },
+
+  addGuard: (x, z) => {
+    const g: Guard = {
+      id: makeId("gd"),
+      name: `Guard ${get().project?.world.guards.length ? get().project!.world.guards.length + 1 : 1}`,
+      speed: 1.1,
+      waypoints: [{ x, z }],
+      active: true,
+    };
+    get().mutateWorld((d) => {
+      d.world.guards.push(g);
+    });
+    set({ selection: { kind: "guard", id: g.id } });
+  },
+
+  addBuilding: (x, z) => {
+    const b: Building = {
+      id: makeId("bd"),
+      name: "New Building",
+      x,
+      z,
+      width: 12,
+      depth: 10,
+      rotation: 0,
+      height: 9,
+      floors: 3,
+      category: "residential",
+      occupancy: 24,
+    };
+    get().mutateWorld((d) => {
+      d.world.buildings.push(b);
+    });
+    set({ selection: { kind: "building", id: b.id } });
+  },
+
+  addFacility: (x, z) => {
+    const f: Facility = {
+      id: makeId("fc"),
+      name: "New Facility",
+      type: get().facilityType,
+      x,
+      z,
+      radius: get().facilityType === "park" ? 24 : undefined,
+    };
+    get().mutateWorld((d) => {
+      d.world.facilities.push(f);
+    });
+    set({ selection: { kind: "facility", id: f.id } });
+  },
+
+  moveObject: (sel, x, z) => {
+    get().mutateWorld((d) => {
+      if (sel.kind === "streetlight") {
+        const o = d.world.streetlights.find((o) => o.id === sel.id);
+        if (o) {
+          o.x = x;
+          o.z = z;
+        }
+      } else if (sel.kind === "camera") {
+        const o = d.world.cameras.find((o) => o.id === sel.id);
+        if (o) {
+          o.x = x;
+          o.z = z;
+        }
+      } else if (sel.kind === "guard") {
+        // move nearest waypoint; guards move via waypoints
+        const o = d.world.guards.find((o) => o.id === sel.id);
+        if (o && o.waypoints.length) {
+          let best = 0;
+          let bd = Infinity;
+          o.waypoints.forEach((w, i) => {
+            const dd = (w.x - x) ** 2 + (w.z - z) ** 2;
+            if (dd < bd) {
+              bd = dd;
+              best = i;
+            }
+          });
+          o.waypoints[best] = { x, z };
+        }
+      } else if (sel.kind === "building") {
+        const o = d.world.buildings.find((o) => o.id === sel.id);
+        if (o) {
+          const dx = x - o.x;
+          const dz = z - o.z;
+          o.x = x;
+          o.z = z;
+          if (o.entrance) {
+            o.entrance.x += dx;
+            o.entrance.z += dz;
+          }
+        }
+      } else if (sel.kind === "facility") {
+        const o = d.world.facilities.find((o) => o.id === sel.id);
+        if (o) {
+          o.x = x;
+          o.z = z;
+        }
+      } else if (sel.kind === "road") {
+        const o = d.world.roads.find((o) => o.id === sel.id);
+        if (o && o.points.length > 0) {
+          const cx = o.points.reduce((sum, p) => sum + p.x, 0) / o.points.length;
+          const cz = o.points.reduce((sum, p) => sum + p.z, 0) / o.points.length;
+          const dx = x - cx;
+          const dz = z - cz;
+          o.points = o.points.map((p) => ({
+            x: Math.round((p.x + dx) * 10) / 10,
+            z: Math.round((p.z + dz) * 10) / 10,
+          }));
+        }
+      }
+    });
+  },
+
+  deleteSelected: () => {
+    const sel = get().selection;
+    if (!sel) return;
+    get().mutateWorld((d) => {
+      if (sel.kind === "streetlight") d.world.streetlights = d.world.streetlights.filter((o) => o.id !== sel.id);
+      else if (sel.kind === "camera") d.world.cameras = d.world.cameras.filter((o) => o.id !== sel.id);
+      else if (sel.kind === "guard") d.world.guards = d.world.guards.filter((o) => o.id !== sel.id);
+      else if (sel.kind === "building") d.world.buildings = d.world.buildings.filter((o) => o.id !== sel.id);
+      else if (sel.kind === "facility") d.world.facilities = d.world.facilities.filter((o) => o.id !== sel.id);
+      else if (sel.kind === "road") d.world.roads = d.world.roads.filter((o) => o.id !== sel.id);
+    });
+    set({ selection: null });
+  },
+
+  undo: () => {
+    const { history, project } = get();
+    if (!history.past.length || !project) return;
+    const prev = history.past[history.past.length - 1];
+    set((s) => ({
+      project: prev,
+      dirty: true,
+      history: { past: s.history.past.slice(0, -1), future: [project, ...s.history.future].slice(0, HISTORY_LIMIT) },
+    }));
+    scheduleAutosave(get, set);
+  },
+
+  redo: () => {
+    const { history, project } = get();
+    if (!history.future.length || !project) return;
+    const next = history.future[0];
+    set((s) => ({
+      project: next,
+      dirty: true,
+      history: { past: [...s.history.past, project].slice(-HISTORY_LIMIT), future: s.history.future.slice(1) },
+    }));
+    scheduleAutosave(get, set);
+  },
+
+  save: async () => {
+    const { project } = get();
+    if (!project) return;
+    set({ saving: true });
+    try {
+      await saveProject(project);
+      set({ dirty: false, lastSavedAt: new Date().toISOString() });
+    } finally {
+      set({ saving: false });
+    }
+  },
+
+  markSaved: () => set({ dirty: false, lastSavedAt: new Date().toISOString() }),
+
+  renameProject: (name) => {
+    get().mutateWorld((d) => {
+      d.name = name;
+    });
+  },
+
+  toggleLayer: (k) => set((s) => ({ layers: { ...s.layers, [k]: !s.layers[k] } })),
+  setSceneTheme: (t) => set({ sceneTheme: t }),
+  setScenarioPanel: (v) => set({ showScenarioPanel: v }),
+  setResultsOpen: (v) => set({ resultsOpen: v }),
+  setCompareOpen: (v) => set({ compareOpen: v }),
+  setAssistantOpen: (v) => set({ assistantOpen: v }),
+  setImportOpen: (v) => set({ importOpen: v }),
+
+  updateScenario: (patch) => {
+    get().mutateWorld((d) => {
+      d.scenario = { ...d.scenario, ...patch };
+    });
+  },
+
+  setActiveRun: (run, kind) => {
+    playbackClock.t = 0;
+    set({ activeRun: run, runKind: kind, playing: run !== null, displayT: 0 });
+  },
+  setPlaying: (v) => set({ playing: v }),
+  setSpeed: (v) => set({ speed: v }),
+  seek: (t) => {
+    playbackClock.t = t;
+    set({ displayT: t });
+  },
+  tickDisplay: () => set({ displayT: playbackClock.t }),
+}));
+
+const DEMO_NAME_DEFAULT = "Vasanth Nagar East";
+
+/* ------------------------------------------------------------------ */
+/* Autosave (debounced)                                                */
+/* ------------------------------------------------------------------ */
+
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleAutosave(
+  get: () => EditorState,
+  set: (partial: Partial<EditorState>) => void
+) {
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(async () => {
+    const { project, saving } = get();
+    if (!project) return;
+    if (saving) return;
+    set({ saving: true });
+    try {
+      await saveProject(project);
+      set({ dirty: false, lastSavedAt: new Date().toISOString() });
+    } catch {
+      // storage failure is non-fatal; the dirty flag stays true
+    } finally {
+      set({ saving: false });
+    }
+  }, 900);
+}
+
+export { defaultScenario };
