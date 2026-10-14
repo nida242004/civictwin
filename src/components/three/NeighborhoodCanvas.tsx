@@ -313,9 +313,10 @@ function SceneContents() {
     [store]
   );
 
+  const sceneTheme = useEditor((s) => s.sceneTheme) ?? "night";
+
   if (!project) return null;
   const b = project.world.bounds;
-  const sceneTheme = useEditor((s) => s.sceneTheme) ?? "night";
   const theme = SCENE_THEMES[sceneTheme] ?? SCENE_THEMES.night;
 
   return (
