@@ -62,7 +62,9 @@ for (const { name, sc } of scenarios) {
   console.log(`[${name}] seed=${sc.seed} beats=${beats.length} speakable=${beats.filter((b) => b.severity >= MIN_SEV).length}`);
   beats.forEach((b) => add(b, b.line));
   const picked = pickBeats(beats);
-  for (const lang of ["en", "hinglish"] as const) {
+  // BAKE_LANGS=en skips Hinglish clips (narration text is still baked if already present)
+  const langs = (process.env.BAKE_LANGS ?? "en,hinglish").split(",") as ("en" | "hinglish")[];
+  for (const lang of langs) {
     const key = narrationKey(lang, picked);
     let entry = narration[key];
     if (!entry) {
