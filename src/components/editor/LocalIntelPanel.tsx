@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useEditor } from "@/lib/store/editor";
 import { useIntel } from "@/lib/ai/intelStore";
 import type { LocalIntel } from "@/lib/ai/context";
+import { cacheIntel, intelKey } from "@/lib/ai/intelLoader";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_PLACE = "Vasanth Nagar, Bengaluru";
@@ -21,6 +22,7 @@ export default function LocalIntelPanel() {
   const setOpen = useIntel((s) => s.setOpen);
   const intel = useIntel((s) => s.intel);
   const setIntel = useIntel((s) => s.setIntel);
+  const status = useIntel((s) => s.status);
   const project = useEditor((s) => s.project);
   const updateScenario = useEditor((s) => s.updateScenario);
 
@@ -37,11 +39,12 @@ export default function LocalIntelPanel() {
   // Auto-research the first time the panel opens (one click fewer in the demo).
   const autoRan = useRef(false);
   useEffect(() => {
-    if (!open || intel || loading || autoRan.current || !project) return;
+    // the background loader normally has it already; only research if it finished without a result
+    if (!open || intel || loading || status === "loading" || autoRan.current || !project) return;
     autoRan.current = true;
     void run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, intel, project?.projectId]);
+  }, [open, intel, status, project?.projectId]);
 
   if (!project) return null;
 
@@ -79,6 +82,7 @@ export default function LocalIntelPanel() {
       const json = await res.json();
       if (!json.ok) throw new Error(json.error ?? "Request failed.");
       setIntel(json.data as LocalIntel);
+      if (typeof lat === "number" && typeof lng === "number") cacheIntel(intelKey(lat, lng), json.data as LocalIntel);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Request failed.");
     } finally {
@@ -138,6 +142,7 @@ export default function LocalIntelPanel() {
           </div>
 
           {error && <div className="rounded-md border border-[#e6c4c4] bg-[#fbf0f0] p-2.5 text-[#8a3b3b]">{error}</div>}
+          {!loading && !intel && status === "loading" && <div className="rounded-md border border-[#e3ded4] bg-[#faf8f4] p-3 text-[#5c6470]">Loading local context in the background…</div>}
           {loading && <div className="rounded-md border border-[#e3ded4] bg-[#faf8f4] p-3 text-[#5c6470]">Searching recent public reports…</div>}
 
           {intel && !loading && (

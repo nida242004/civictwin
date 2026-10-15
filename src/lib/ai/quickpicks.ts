@@ -53,6 +53,8 @@ export interface Candidate {
   z: number;
   evidence: CandidateEvidence;
   ops: ProposalOp[];
+  /** Baseline incident type this candidate targets (perp kind), when it targets one. */
+  incidentType?: string;
 }
 
 export interface CandidateScore {
@@ -166,7 +168,10 @@ export function generateCandidates(project: PraesidiumProject, baseline: StoredR
     if (!free(e.x, e.z, "camera")) continue;
     const s = nearestSample(cov, e.x, e.z, 10);
     taken.push({ x: e.x, z: e.z, kind: "camera" });
-    out.push(cameraCandidate(`cam_inc_${out.length}`, `CCTV on blind-spot ${EVENT_TYPE_LABEL[e.type] ?? e.type} spot (${r0(e.x)}, ${r0(e.z)})`, s.x, s.z, e.x, e.z, world, cov, incidents, sc.cctvRangeScale, `aimed at a baseline ${e.type} incident (${e.outcome})`));
+    out.push({
+      ...cameraCandidate(`cam_inc_${out.length}`, `CCTV on blind-spot ${EVENT_TYPE_LABEL[e.type] ?? e.type} spot (${r0(e.x)}, ${r0(e.z)})`, s.x, s.z, e.x, e.z, world, cov, incidents, sc.cctvRangeScale, `aimed at a baseline ${e.type} incident (${e.outcome})`),
+      incidentType: e.type,
+    });
   }
 
   // 2) camera on the least-covered lanes

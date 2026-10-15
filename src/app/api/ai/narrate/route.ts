@@ -11,7 +11,7 @@ Keep lines vivid, realistic, under 14 words, no gore. Output JSON only.`;
 
 interface Body {
   beats?: IncidentBeat[];
-  context?: { placeName?: string; summary?: string; peakHours?: string };
+  context?: { placeName?: string; summary?: string; peakHours?: string; riskFactors?: string[]; incidentMix?: Record<string, number> };
   lang?: "en" | "hinglish";
 }
 
@@ -48,6 +48,8 @@ export async function POST(req: NextRequest) {
   const prompt = `Locality: ${String(body.context?.placeName ?? "an Indian residential colony").slice(0, 100)}
 Local context: ${String(body.context?.summary ?? "n/a").slice(0, 500)}
 Peak risk hours: ${String(body.context?.peakHours ?? "n/a").slice(0, 100)}
+Local risk factors: ${JSON.stringify((Array.isArray(body.context?.riskFactors) ? body.context!.riskFactors! : []).slice(0, 4).map((f) => String(f).slice(0, 100)))}
+Local incident mix: ${JSON.stringify(body.context?.incidentMix ?? {}).slice(0, 200)} (in debriefs, tie the suggested intervention to a local factor when it fits)
 Language: ${lang === "hinglish" ? "Hinglish (Hindi written in Latin script mixed with English, natural Indian street speech)" : "plain English"}
 
 Beats (JSON): ${JSON.stringify(compact)}

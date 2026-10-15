@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { judge, jevConfigured } from "@/lib/ai/typesafe";
 import { enumeratePolicySpecs, normaliseDist, actionsForKey, type JevPolicy } from "@/lib/sim/policy";
+import type { CompactIntel } from "@/lib/ai/context";
 import { DEFAULT_INCIDENT_MIX, PERP_KINDS, type PerpKind } from "@/lib/sim/incidents";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export const maxDuration = 30;
  */
 export async function POST(req: NextRequest) {
   if (!jevConfigured()) return NextResponse.json({ ok: false, error: "TypeSafe Jev is not configured." }, { status: 503 });
-  let body: { scenario?: Record<string, unknown>; site?: unknown };
+  let body: { scenario?: Record<string, unknown>; site?: unknown; local?: CompactIntel | null; intelHash?: string };
   try {
     body = await req.json();
   } catch {
@@ -29,9 +30,29 @@ export async function POST(req: NextRequest) {
   const specs = enumeratePolicySpecs(kinds.length ? kinds : PERP_KINDS, fatigue > 0);
   if (!specs.length) return NextResponse.json({ ok: false, error: "No policy situations for this scenario." }, { status: 400 });
 
+  const l = body.local && typeof body.local === "object" && body.local.incidentMix ? body.local : null;
+  const local = l
+    ? {
+        place: String(l.place ?? "").slice(0, 80),
+        grounded: Boolean(l.grounded),
+        incidentMix: l.incidentMix,
+        peakHours: String(l.peakHours ?? "").slice(0, 80),
+        riskFactors: (l.riskFactors ?? []).slice(0, 4).map((f) => String(f).slice(0, 100)),
+      }
+    : null;
+  const localNote = local
+    ? ` Area-level local pattern (see \`local\` in the state): most common incident types ${Object.entries(local.incidentMix)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([k, v]) => `${k.replace("_", " ")} ${Math.round(v * 100)}%`)
+        .join(", ")}; peak hours ${local.peakHours || "n/a"}. Let that shape how likely the offender is to act and how pedestrians react.`
+    : "";
   const ids = specs.map((_, i) => `s${i}`);
   const questions = Object.fromEntries(
-    specs.map((s, i) => [ids[i], { type: "choice" as const, instructions: s.instructions, criteria: s.criteria }])
+    specs.map((s, i) => [
+      ids[i],
+      { type: "choice" as const, instructions: s.key.startsWith("guard|") ? s.instructions : s.instructions + localNote, criteria: s.criteria },
+    ])
   );
   const state = {
     simulation: "Praesidium — fictional night-time security stress test of a residential society. All actors are synthetic.",
@@ -43,6 +64,7 @@ export async function POST(req: NextRequest) {
       ambientVisibility: Number(sc.ambientVisibility ?? 1),
       guardFatigue: fatigue,
     },
+    local,
   };
   try {
     const r = await judge(state, questions, { timeoutMs: 6000 });
@@ -54,7 +76,7 @@ export async function POST(req: NextRequest) {
         if (d) table[s.key] = d;
       }
     });
-    const policy: JevPolicy = { version: 1, source: "jev", model: r.model, createdAt: new Date().toISOString(), table };
+    const policy: JevPolicy = { version: 1, source: "jev", model: r.model, createdAt: new Date().toISOString(), table, ...(local && body.intelHash ? { intelHash: String(body.intelHash).slice(0, 20) } : {}) };
     return NextResponse.json({ ok: true, data: { policy, latencyMs: r.latencyMs, questions: specs.length, requests: r.requests } });
   } catch (e) {
     return NextResponse.json({ ok: false, error: `Jev request failed: ${e instanceof Error ? e.message : "unknown"}` }, { status: 502 });

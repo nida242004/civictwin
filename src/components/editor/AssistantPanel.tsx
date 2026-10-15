@@ -15,6 +15,8 @@ import { describeOps, type Proposal } from "@/lib/ai/schema";
 import { cn } from "@/lib/utils";
 import { useIntel } from "@/lib/ai/intelStore";
 import QuickPicks from "./QuickPicks";
+import IntelChip from "./IntelChip";
+import { compactIntel } from "@/lib/ai/context";
 
 interface ProposeResponse {
   ok: boolean;
@@ -87,7 +89,7 @@ export default function AssistantPanel() {
             ? { metrics: baselineRun.metrics, events: baselineRun.events }
             : null,
           message: msg,
-          localIntel: useIntel.getState().intel,
+          localIntel: compactIntel(useIntel.getState().intel),
         }),
       });
       const json = (await res.json()) as ProposeResponse;
@@ -167,6 +169,8 @@ export default function AssistantPanel() {
               </div>
             )}
           </div>
+
+          <IntelChip />
 
           <QuickPicks
             onExplain={(m) => {

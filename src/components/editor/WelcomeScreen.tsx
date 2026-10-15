@@ -176,7 +176,7 @@ export default function WelcomeScreen() {
       >
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-5 sm:px-8">
           <a href="#top" className="flex items-center gap-2 text-white">
-            <Shield className="h-[18px] w-[18px] text-teal-300" />
+            <Shield className="h-[18px] w-[18px] text-white" />
             <span className="text-[15px] font-semibold tracking-[-0.02em]">Praesidium</span>
           </a>
           <nav className="flex items-center gap-6">

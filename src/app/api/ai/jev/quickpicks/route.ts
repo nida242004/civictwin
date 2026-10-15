@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { judge, jevConfigured, type JevQuestion } from "@/lib/ai/typesafe";
+import type { CompactIntel } from "@/lib/ai/context";
 import { candidateBrief, rankValue, type Candidate, type CandidateScore } from "@/lib/ai/quickpicks";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ const IMPACT_LEVELS = [
  */
 export async function POST(req: NextRequest) {
   if (!jevConfigured()) return NextResponse.json({ ok: false, error: "TypeSafe Jev is not configured." }, { status: 503 });
-  let body: { candidates?: Candidate[]; context?: unknown };
+  let body: { candidates?: Candidate[]; context?: unknown; local?: CompactIntel | null };
   try {
     body = await req.json();
   } catch {
@@ -30,27 +31,40 @@ export async function POST(req: NextRequest) {
   const cands = (Array.isArray(body.candidates) ? body.candidates : []).slice(0, 30);
   if (!cands.length) return NextResponse.json({ ok: false, error: "No candidates." }, { status: 400 });
 
+  const l = body.local && typeof body.local === "object" && body.local.incidentMix ? body.local : null;
+  const local = l
+    ? {
+        place: String(l.place ?? "").slice(0, 80),
+        grounded: Boolean(l.grounded),
+        riskFactors: (l.riskFactors ?? []).slice(0, 4).map((f) => String(f).slice(0, 100)),
+        incidentMix: l.incidentMix,
+        peakHours: String(l.peakHours ?? "").slice(0, 80),
+      }
+    : null;
+  const localQ = local ? ` Given the \`local\` context in the state (locally common incident types and risk factors), how much would this change reduce the locally common incident types?` : "";
+  const localR = local ? ` Also consider the \`local\` context: it is redundant only if it does not address any locally common risk factor.` : "";
+
   const questions: Record<string, JevQuestion> = {};
   cands.forEach((c, i) => {
     const brief = candidateBrief(c);
     questions[`i${i}`] = {
       type: "score",
-      instructions: `Fictional security-planning simulation of a residential society at night. Candidate intervention: ${brief}. How much would this single change improve safety outcomes (detection, response, deterrence) for the simulated incidents?`,
+      instructions: `Fictional security-planning simulation of a residential society at night. Candidate intervention: ${brief}. How much would this single change improve safety outcomes (detection, response, deterrence) for the simulated incidents?${localQ}`,
       criteria: IMPACT_LEVELS,
     };
     questions[`r${i}`] = {
       type: "noul",
       instructions:
-        c.kind === "camera"
+        (c.kind === "camera"
           ? `Candidate CCTV camera: ${brief}. This camera would mostly watch an empty wall, an area with no walkway, or a spot already covered by other cameras.`
           : c.kind === "light"
             ? `Candidate streetlight: ${brief}. This streetlight is redundant because the spot is already well lit or has working lights nearby.`
-            : `Candidate change: ${brief}. This change is redundant because guards already reach these incidents quickly.`,
+            : `Candidate change: ${brief}. This change is redundant because guards already reach these incidents quickly.`) + localR,
     };
   });
 
   try {
-    const r = await judge({ context: body.context ?? null }, questions, { timeoutMs: 5000 });
+    const r = await judge({ context: body.context ?? null, local }, questions, { timeoutMs: 5000 });
     const scores: Record<string, CandidateScore> = {};
     cands.forEach((c, i) => {
       const s = r.answers[`i${i}`];

@@ -15,6 +15,8 @@ import { useDrama } from "@/lib/store/drama";
 import { dramaEnabled } from "@/lib/sim/drama";
 import { policyCacheKey } from "@/lib/sim/policy";
 import { getJevPolicy } from "@/lib/ai/jevClient";
+import { compactIntel, intelHash } from "@/lib/ai/context";
+import { intelSoon } from "@/lib/ai/intelLoader";
 import { applyProposal, type Proposal } from "@/lib/ai/schema";
 import { makeId } from "@/lib/world/ids";
 
@@ -30,9 +32,12 @@ async function withJevPolicy(project: PraesidiumProject): Promise<ScenarioConfig
     const { jevPolicy: _drop, ...rest } = sc;
     return rest as ScenarioConfig;
   }
-  const key = policyCacheKey(project.projectId, sc);
+  // The demo keeps its prebaked tables: intel never changes the demo's policy.
+  const isDemo = project.source.kind === "demo";
+  const local = isDemo ? null : compactIntel(await intelSoon(4000));
+  const key = policyCacheKey(project.projectId, sc, intelHash(local));
   if (sc.jevPolicy?.key === key) return sc;
-  const info = await getJevPolicy(project.projectId, sc, { preferPrebaked: project.source.kind === "demo" });
+  const info = await getJevPolicy(project.projectId, sc, { preferPrebaked: isDemo, local });
   useDrama.getState().setPolicyInfo({ from: info.from, latencyMs: info.latencyMs, entries: info.policy ? Object.keys(info.policy.table).length : 0 });
   return info.policy ? { ...sc, jevPolicy: info.policy } : sc;
 }

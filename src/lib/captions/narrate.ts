@@ -103,6 +103,8 @@ export async function narrateBeats(runId: string, allBeats: IncidentBeat[]): Pro
           placeName: intel?.placeName ?? project?.source.geo?.placeName ?? project?.name,
           summary: intel?.summary ?? project?.source.geo?.summary,
           peakHours: intel?.peakHours,
+          riskFactors: intel?.riskFactors?.slice(0, 4).map((r) => r.factor),
+          incidentMix: intel?.incidentMix,
         },
       }),
     });

@@ -40,6 +40,8 @@ export interface JevPolicy {
   createdAt?: string;
   /** policyCacheKey() of the world + scenario it was built for (client-set). */
   key?: string;
+  /** Hash of the Local Intel the table was built with (absent for demo/prebaked). */
+  intelHash?: string;
   /** situation key → { action → probability } */
   table: Record<string, Record<string, number>>;
 }
@@ -189,8 +191,10 @@ export function actionsForKey(key: string): readonly string[] {
 }
 
 /** Stable cache key for a policy request (world identity + behavioural scenario params, no seed, no table). */
-export function policyCacheKey(worldTag: string, scenario: { id: string; perpCount?: number; guardFatigue?: number; ambientVisibility: number; incidentMix?: object }): string {
-  const s = JSON.stringify([worldTag, scenario.id, scenario.perpCount ?? 0, scenario.guardFatigue ?? 0, scenario.ambientVisibility, scenario.incidentMix ?? null]);
+export function policyCacheKey(worldTag: string, scenario: { id: string; perpCount?: number; guardFatigue?: number; ambientVisibility: number; incidentMix?: object }, intelHash?: string): string {
+  const base = [worldTag, scenario.id, scenario.perpCount ?? 0, scenario.guardFatigue ?? 0, scenario.ambientVisibility, scenario.incidentMix ?? null];
+  // an absent hash leaves the key byte-identical to the pre-intel format (demo / prebaked tables)
+  const s = JSON.stringify(intelHash ? [...base, intelHash] : base);
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
   return `jevpol_${(h >>> 0).toString(36)}`;

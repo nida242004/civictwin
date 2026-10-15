@@ -23,6 +23,8 @@ import {
 import { fmtInr } from "@/lib/sim/compare";
 import { verifyCandidatesStreaming } from "@/lib/sim/verifyClient";
 import { cn } from "@/lib/utils";
+import { useIntel } from "@/lib/ai/intelStore";
+import { compactIntel, localLine, localTagFor } from "@/lib/ai/context";
 
 type Row = Candidate & { score: CandidateScore };
 
@@ -59,6 +61,7 @@ export default function QuickPicks({ onExplain }: { onExplain: (message: string)
         signal: ctrl.signal,
         body: JSON.stringify({
           candidates: cands,
+          local: compactIntel(useIntel.getState().intel),
           context: {
             site: project.name,
             night: { name: baseline.scenario.name, startTime: baseline.scenario.startTime, ambientVisibility: baseline.scenario.ambientVisibility },
@@ -105,15 +108,21 @@ export default function QuickPicks({ onExplain }: { onExplain: (message: string)
     if (!ctrl.signal.aborted) setProgress(null);
   };
 
+  const intel = useIntel((s) => s.intel);
+  const localCompact = compactIntel(intel);
+  const localTag = (r: { kind: string; incidentType?: string }) => localTagFor(r.kind, localCompact, r.incidentType);
+
   const explain = () => {
     if (!rows) return;
     const lines = rows.slice(0, 3).map((r, i) => {
       const v = verified[r.id];
       const m = v && v !== "running" ? `simulated risk ${v.riskBefore} → ${v.riskAfter}${v.riskPerLakh !== null ? ` (${v.riskPerLakh} per ₹1 lakh)` : ""}` : "not yet simulated";
-      return `${i + 1}. ${r.label} — cost ${fmtInr(r.costInr)}, Jev impact ${Math.round(r.score.impact * 100)}%, redundancy ${Math.round(r.score.redundant * 100)}%, ${m}`;
+      const lt = localTag(r);
+      return `${i + 1}. ${r.label} — cost ${fmtInr(r.costInr)}, Jev impact ${Math.round(r.score.impact * 100)}%, redundancy ${Math.round(r.score.redundant * 100)}%, ${m}${lt ? `, addresses local factor: ${lt}` : ""}`;
     });
+    const ctx = localCompact ? `\n${localLine(localCompact)} Tie each pick to the local risk factors where relevant.` : "";
     onExplain(
-      `Explain these quick-pick interventions and recommend the best value one. Jev gave the fast judgment and the simulation measured the effect (same seed, one change at a time):\n${lines.join("\n")}`
+      `Explain these quick-pick interventions and recommend the best value one. Jev gave the fast judgment and the simulation measured the effect (same seed, one change at a time):\n${lines.join("\n")}${ctx}`
     );
   };
 
@@ -184,6 +193,11 @@ export default function QuickPicks({ onExplain }: { onExplain: (message: string)
                     <span className="text-[#5b21b6]">impact {Math.round(r.score.impact * 100)}%</span>
                     {r.score.redundant >= 0.5 && <span className="text-[#b45309]">likely redundant {Math.round(r.score.redundant * 100)}%</span>}
                     <span className="text-[#8a8272]">{r.evidence.incidentsNear} incidents near</span>
+                    {localTag(r) && (
+                      <span className="rounded bg-[#e5f1ea] px-1 text-[#2e7d5b]" data-testid="local-tag" title="Matches a local risk factor from Local Intel">
+                        ◎ local: {localTag(r)}
+                      </span>
+                    )}
                   </div>
                   {v && (
                     <div className="ml-10 mt-0.5 text-[10px]">

@@ -9,6 +9,7 @@
 
 import type { ScenarioConfig } from "@/lib/world/types";
 import { policyCacheKey, type JevPolicy } from "@/lib/sim/policy";
+import { intelHash, type CompactIntel } from "@/lib/ai/context";
 
 const mem = new Map<string, JevPolicy>();
 const DB = "praesidium-jev";
@@ -58,10 +59,12 @@ export const lastPolicyInfo = () => lastInfo;
 export async function getJevPolicy(
   worldTag: string,
   scenario: ScenarioConfig,
-  opts: { timeoutMs?: number; preferPrebaked?: boolean } = {}
+  opts: { timeoutMs?: number; preferPrebaked?: boolean; local?: CompactIntel | null } = {}
 ): Promise<PolicyFetchInfo> {
   const t0 = performance.now();
-  const key = policyCacheKey(worldTag, scenario);
+  // demo (preferPrebaked) never uses intel, so its key and table stay byte-identical
+  const local = opts.preferPrebaked ? null : opts.local ?? null;
+  const key = policyCacheKey(worldTag, scenario, intelHash(local));
   const done = (policy: JevPolicy | null, from: PolicyFetchInfo["from"]) =>
     (lastInfo = { policy: policy ? { ...policy, key } : null, from, latencyMs: Math.round(performance.now() - t0) });
 
@@ -99,6 +102,8 @@ export async function getJevPolicy(
           ambientVisibility: scenario.ambientVisibility,
           incidentMix: scenario.incidentMix,
         },
+        local,
+        intelHash: intelHash(local) || undefined,
       }),
     }).finally(() => clearTimeout(timer));
     const json = (await res.json()) as { ok: boolean; data?: { policy: JevPolicy } };

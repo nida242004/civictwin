@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   if (!project || !project.world || !project.scenario) {
     return NextResponse.json({ ok: false, error: "Missing project data." }, { status: 400 });
   }
-  const message = typeof body.message === "string" ? body.message.slice(0, 600) : "";
+  const message = typeof body.message === "string" ? body.message.slice(0, 1500) : "";
   const baselineRun = (body.baselineRun as StoredRun | null) ?? null;
 
   const geminiKey = geminiConfigured();
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
   // z-ai SDK provider
   try {
-    const raw = await callZai(project, baselineRun, message);
+    const raw = await callZai(project, baselineRun, message, body.localIntel);
     const result = validateProposal(raw, project);
     if (result.ok) {
       return NextResponse.json({
@@ -192,7 +192,8 @@ async function callGeminiProposal(
 async function callZai(
   project: PraesidiumProject,
   baselineRun: StoredRun | null,
-  message: string
+  message: string,
+  intel?: unknown
 ): Promise<unknown> {
   const { default: ZAI } = await import("z-ai-web-dev-sdk");
   const zai = await ZAI.create();
@@ -203,7 +204,7 @@ async function callZai(
         content:
           "You are the Praesidium planning assistant. You output ONLY valid JSON matching the requested schema, with no markdown fences or commentary.",
       },
-      { role: "user", content: buildPrompt(project, baselineRun, message, undefined) },
+      { role: "user", content: buildPrompt(project, baselineRun, message, intel) },
     ],
     thinking: { type: "disabled" },
   });
@@ -247,12 +248,14 @@ function formatIntel(intel: unknown): string {
   const i = intel as {
     summary?: string;
     peakHours?: string;
-    riskFactors?: { factor?: string }[];
+    riskFactors?: ({ factor?: string } | string)[];
     incidentMix?: Record<string, number>;
+    grounded?: boolean;
   } | null;
   if (!i || typeof i !== "object" || typeof i.summary !== "string") return "";
-  const factors = (i.riskFactors ?? []).slice(0, 6).map((r) => String(r.factor ?? "").slice(0, 100)).filter(Boolean);
-  return `Local context (area-level, from public sources; use it to prioritise where/when to intervene, never to profile people):
-${JSON.stringify({ summary: i.summary.slice(0, 500), peakHours: String(i.peakHours ?? "").slice(0, 80), riskFactors: factors, incidentMix: i.incidentMix ?? {} })}
+  const factors = (i.riskFactors ?? []).slice(0, 5).map((r) => String(typeof r === "string" ? r : r?.factor ?? "").slice(0, 100)).filter(Boolean);
+  return `Local context (area-level, ${i.grounded ? "from public sources" : "general knowledge, not web-grounded"}; use it to prioritise where/when to intervene, never to profile people):
+${JSON.stringify({ summary: i.summary.slice(0, 400), peakHours: String(i.peakHours ?? "").slice(0, 80), riskFactors: factors, incidentMix: i.incidentMix ?? {} })}
+In "rationale" (and expectedEffects) explicitly tie each proposed addition to one of these local risk factors or common incident types, e.g. "chain snatching is common near metro exits, so light the Block F footpath". Keep every op valid and inside the allowlist.
 `;
 }

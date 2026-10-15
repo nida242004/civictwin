@@ -21,8 +21,10 @@ import ImportDialog from "./ImportDialog";
 import LocalIntelPanel from "./LocalIntelPanel";
 import { useEditor } from "@/lib/store/editor";
 import { cn } from "@/lib/utils";
+import { useAutoIntel } from "@/lib/ai/intelLoader";
 
 export default function EditorShell() {
+  useAutoIntel();
   const showScenarioPanel = useEditor((s) => s.showScenarioPanel);
   const setScenarioPanel = useEditor((s) => s.setScenarioPanel);
   const [showInspector, setShowInspector] = useState(true);
