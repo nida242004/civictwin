@@ -55,7 +55,7 @@ describe("deterministic simulation engine", () => {
   it("guards patrol and their positions change over time", () => {
     const world = buildDemoWorld();
     const res = runSimulation(world, scenario({ population: 4, durationSec: 180 }));
-    expect(res.guardCount).toBe(2); // demo has two guards
+    expect(res.guardCount).toBe(3); // demo has a gate guard + two patrols
     const f0 = res.frames[0];
     const fEnd = res.frames[res.frames.length - 1];
     const moved = Array.from(fEnd.guardPos).some((v, i) => v !== f0.guardPos[i]);

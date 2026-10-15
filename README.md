@@ -27,7 +27,7 @@ No API keys, no accounts, no cloud database are required for the core product.
 | Deterministic simulation engine | Pure TypeScript, fixed 1 s timestep, seeded PRNG (`src/lib/sim`) |
 | A* pedestrian routing | Walkable graph built from roads/paths, split at intersections (`src/lib/world/graph.ts`) |
 | Nighttime 3D editor | React Three Fiber isometric scene, placement/drag/move/delete, undo–redo (`src/components/three`) |
-| Demo neighborhood | "Vasanth Nagar East" — procedural, deterministic, fully editable (`src/lib/world/demo.ts`) |
+| Demo society | "Shanti Vihar RWA" — gated 3×3 society (8 blocks around a park + Shiv Mandir), compound wall, main + service gate; procedural, deterministic, fully editable (`src/lib/world/demo.ts`) |
 | Scenario templates | Typical Night / Low-Visibility Night, fully parameterized |
 | Metrics | Modeled lighting & CCTV coverage, reachability, patrol & response analytics, costs |
 | Baseline vs intervention | Same-seed comparison, preserved immutable baseline, percentage-point deltas |

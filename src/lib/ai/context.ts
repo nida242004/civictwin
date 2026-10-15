@@ -29,5 +29,3 @@ export interface LocalIntel {
   cached?: boolean;
 }
 
-export const VOICES = ["victim", "perp", "guard", "narrator"] as const;
-export type VoiceRole = (typeof VOICES)[number];

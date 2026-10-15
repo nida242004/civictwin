@@ -13,8 +13,7 @@ import { downloadJson } from "@/lib/storage/projects";
 import { runIntervention, runBaseline, prepareReportData } from "@/lib/run-actions";
 import { useToast } from "@/hooks/use-toast";
 import { useIntel } from "@/lib/ai/intelStore";
-import { useVoiceDriver, useVoiceMuted } from "@/lib/voice/voice";
-import { useNarration, useNarrationDriver } from "@/lib/voice/narrate";
+import { useNarration, useNarrationDriver } from "@/lib/captions/narrate";
 
 export default function TopBar() {
   const project = useEditor((s) => s.project);
@@ -31,9 +30,7 @@ export default function TopBar() {
   const openProject = useEditor((s) => s.openProject);
   const activeRun = useEditor((s) => s.activeRun);
   const { toast } = useToast();
-  const [voiceMuted, setVoiceMuted] = useVoiceMuted();
   const setIntelOpen = useIntel((s) => s.setOpen);
-  useVoiceDriver();
   useNarrationDriver();
   const lang = useNarration((s) => s.lang);
   const setLang = useNarration((s) => s.setLang);
@@ -123,20 +120,11 @@ export default function TopBar() {
         <Button variant="ghost" size="sm" onClick={() => setIntelOpen(true)} title="Local safety intel (Gemini + Google Search)">
           ◎ Local intel
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setVoiceMuted(!voiceMuted)}
-          title={voiceMuted ? "Unmute incident voices" : "Mute incident voices"}
-          aria-label={voiceMuted ? "Unmute incident voices" : "Mute incident voices"}
-        >
-          {voiceMuted ? "🔇" : "🔊"}
-        </Button>
         <button
           onClick={() => setLang(lang === "en" ? "hinglish" : "en")}
           className="flex items-center gap-1 rounded-md border border-[#dcd6c8] px-1.5 py-1 text-[10px] font-medium text-[#5c6470] hover:bg-[#f1ede4]"
           title={
-            (lang === "en" ? "Voice lines: English — click for Hinglish" : "Voice lines: Hinglish — click for English") +
+            (lang === "en" ? "Captions: English — click for Hinglish" : "Captions: Hinglish — click for English") +
             (narrStatus === "gemini" ? " · lines rewritten by Gemini" : narrStatus === "loading" ? " · Gemini is writing lines…" : narrStatus === "idle" ? "" : " · using built-in lines")
           }
         >

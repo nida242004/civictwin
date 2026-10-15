@@ -16,6 +16,9 @@ import type { Frame } from "@/lib/sim/engine";
 import type { DramaFrame } from "@/lib/sim/incidents";
 import { BeatBubbles, BubbleBody, DecisionBubbles } from "./bubbles";
 import { Html } from "@react-three/drei";
+import { chooseView } from "@/components/editor/replayCamera";
+import { buildNavGraph, findPath, nearestRoutableNode, pathPositions } from "@/lib/world/graph";
+import type { World } from "@/lib/world/types";
 import { CHAR_SCALE } from "./characters";
 import { useIsMainScene, useSceneCameras, useSceneClock, useSceneDrama, useSceneRun } from "./sceneSource";
 
@@ -62,7 +65,7 @@ function DramaDriver() {
   );
   const prevKeys = useRef<number[]>([]);
   useEffect(() => {
-    if (main) (window as unknown as { __praesidiumBeats?: unknown }).__praesidiumBeats = beats; // debug / screenshot hook
+    if (main && process.env.NODE_ENV !== "production") (window as unknown as { __praesidiumBeats?: unknown }).__praesidiumBeats = beats; // debug / screenshot hook
   }, [beats, main]);
 
   useEffect(() => {
@@ -254,28 +257,73 @@ function Officer({ x, z, yaw }: { x: number; z: number; yaw: number }) {
   );
 }
 
-function PoliceArrival({ beat }: { beat: ActiveBeat }) {
+const POLICE_SPEED = 14; // m/s
+type PolicePath = { pts: { x: number; z: number }[]; cum: number[]; len: number };
+
+/**
+ * Route of the police jeep: from the outer road to the society's MAIN GATE, then
+ * along the internal drives (A*) to the scene. Sites without a gate: straight in.
+ */
+function policeRoute(world: World | undefined, graph: ReturnType<typeof buildNavGraph> | null, x: number, z: number): PolicePath {
+  let pts: { x: number; z: number }[] = [{ x: x + 90, z: z + 90 }, { x: x + 6, z: z + 5 }];
+  const gate = world?.site?.gates.find((g) => g.kind === "main");
+  if (world && gate && graph) {
+    const wall = world.site?.walls.find((w) => w.closed && w.points.length >= 3);
+    let cx = 0, cz = 0;
+    if (wall) {
+      for (const p of wall.points) { cx += p.x; cz += p.z; }
+      cx /= wall.points.length;
+      cz /= wall.points.length;
+    }
+    const dx = gate.x - cx, dz = gate.z - cz;
+    const out = Math.abs(dx) > Math.abs(dz) ? { x: Math.sign(dx), z: 0 } : { x: 0, z: Math.sign(dz) || 1 };
+    pts = [{ x: gate.x + out.x * 70, z: gate.z + out.z * 70 }, { x: gate.x + out.x * 12, z: gate.z + out.z * 12 }, { x: gate.x, z: gate.z }];
+    const na = nearestRoutableNode(graph, gate.x, gate.z);
+    const nb = nearestRoutableNode(graph, x, z);
+    const res = na !== null && nb !== null ? findPath(graph, na, nb) : null;
+    if (res) for (const p of pathPositions(graph, res.nodes).pts) pts.push({ x: p.x, z: p.z });
+    // stop just short of the scene so the officers do not stand on the victim
+    const last = pts[pts.length - 1];
+    if (Math.hypot(last.x - x, last.z - z) > 4) pts.push({ x: x + (last.x - x) * 0.3, z: z + (last.z - z) * 0.3 });
+  }
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+  return { pts, cum, len: cum[cum.length - 1] };
+}
+
+function along(p: PolicePath, s: number): { x: number; z: number; yaw: number } {
+  const { pts, cum } = p;
+  let i = 1;
+  while (i < pts.length - 1 && cum[i] < s) i++;
+  const a = pts[i - 1], b = pts[i];
+  const seg = Math.max(1e-6, cum[i] - cum[i - 1]);
+  const k = Math.min(1, Math.max(0, (s - cum[i - 1]) / seg));
+  return { x: a.x + (b.x - a.x) * k, z: a.z + (b.z - a.z) * k, yaw: Math.atan2(b.x - a.x, b.z - a.z) };
+}
+
+function PoliceArrival({ beat, route }: { beat: ActiveBeat; route: PolicePath }) {
   const root = useRef<THREE.Group>(null);
+  const jeep = useRef<THREE.Group>(null);
   const light1 = useRef<THREE.MeshBasicMaterial>(null);
   const light2 = useRef<THREE.MeshBasicMaterial>(null);
   const halo = useRef<THREE.Mesh>(null);
   const bubble = useRef<HTMLDivElement>(null);
   const t0 = beat.tSec + POLICE_DELAY;
-  const yaw = Math.atan2(-1, -1);
-  const fx = beat.x + 6, fz = beat.z + 5;
+  const drive = Math.min(18, Math.max(5, route.len / POLICE_SPEED));
   const sceneClock = useSceneClock();
 
   useFrame(({ clock }) => {
     const t = sceneClock.t;
     const g = root.current;
     if (!g) return;
-    const vis = t >= t0 && t < t0 + POLICE_STAY;
+    const vis = t >= t0 && t < t0 + drive + POLICE_STAY;
     g.visible = vis;
     if (!vis) return;
-    const k = Math.min(1, (t - t0) / 5);
-    const e = 1 - Math.pow(1 - k, 3);
-    const sx = fx + 90, sz = fz + 90;
-    g.position.set(sx + (fx - sx) * e, 0, sz + (fz - sz) * e);
+    const k = Math.min(1, (t - t0) / drive);
+    const e = k < 0.75 ? k / 0.75 * 0.85 : 0.85 + 0.15 * (1 - Math.pow(1 - (k - 0.75) / 0.25, 2)); // cruise, then brake
+    const p = along(route, route.len * e);
+    g.position.set(p.x, 0, p.z);
+    if (jeep.current && k < 1) jeep.current.rotation.y = p.yaw;
     const blink = Math.sin(clock.elapsedTime * 14) > 0;
     light1.current?.color.set(blink ? "#ff2a2a" : "#220000");
     light2.current?.color.set(blink ? "#001133" : "#2f6bff");
@@ -284,7 +332,7 @@ function PoliceArrival({ beat }: { beat: ActiveBeat }) {
       (halo.current.material as THREE.MeshBasicMaterial).color.set(blink ? "#ff2a2a" : "#2f6bff");
     }
     if (bubble.current) {
-      const a = t - (t0 + 4.5);
+      const a = t - (t0 + drive - 0.5);
       bubble.current.style.opacity = String(a < 0 || a > 5 ? 0 : Math.min(1, a / 0.2, (5 - a) / 0.6));
       bubble.current.style.transform = `translate(-50%, -100%) scale(${(0.7 + 0.3 * Math.min(1, a / 0.2)).toFixed(2)})`;
     }
@@ -293,7 +341,7 @@ function PoliceArrival({ beat }: { beat: ActiveBeat }) {
   const S = 2.2;
   return (
     <group ref={root} visible={false}>
-      <group rotation={[0, yaw, 0]} scale={S}>
+      <group ref={jeep} rotation={[0, Math.atan2(-1, -1), 0]} scale={S}>
         <mesh position={[0, 0.75, 0]}><boxGeometry args={[1.7, 0.7, 4]} /><meshStandardMaterial color="#e8edf2" roughness={0.5} /></mesh>
         <mesh position={[0, 1.35, -0.2]}><boxGeometry args={[1.6, 0.55, 2.3]} /><meshStandardMaterial color="#cdd6df" roughness={0.4} /></mesh>
         <mesh position={[0, 1.38, 0.95]}><boxGeometry args={[1.5, 0.4, 0.05]} /><meshStandardMaterial color="#1b2a44" /></mesh>
@@ -327,10 +375,15 @@ function PoliceLayer() {
     () => beatsOf(activeRun?.result as { beats?: IncidentBeat[] } | undefined).map((b, key) => ({ ...b, key })).filter((b) => b.kind === "perp_caught" || b.kind === "perp_escaped").slice(0, 4),
     [activeRun]
   );
+  const world = useEditor((s) => s.project?.world);
+  const site = world?.site;
+  const roads = world?.roads;
+  const graph = useMemo(() => (world && site?.gates.some((g) => g.kind === "main") ? buildNavGraph(world) : null), [roads, site]); // eslint-disable-line react-hooks/exhaustive-deps
+  const routes = useMemo(() => arrivals.map((b) => policeRoute(world, graph, b.x, b.z)), [arrivals, graph]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <>
-      {arrivals.map((b) => (
-        <PoliceArrival key={b.key} beat={b} />
+      {arrivals.map((b, i) => (
+        <PoliceArrival key={b.key} beat={b} route={routes[i]} />
       ))}
     </>
   );
@@ -344,7 +397,7 @@ function FollowCam() {
     | (THREE.EventDispatcher & { target: THREE.Vector3; update: () => void })
     | null;
   const camera = useThree((s) => s.camera);
-  const fly = useRef<{ x: number; z: number; zoom: number } | null>(null);
+  const fly = useRef<{ x: number; z: number; zoom: number; theta: number; phi: number } | null>(null);
   const handled = useRef(-1);
 
   useEffect(() => {
@@ -364,7 +417,10 @@ function FollowCam() {
         for (const b of st.activeBeats) {
           if (b.kind === "attack_start" && b.key !== handled.current) {
             handled.current = b.key;
-            fly.current = { x: b.x, z: b.z, zoom: Math.max(camera.zoom, 8) };
+            // occlusion-aware angle so the attack is not hidden behind a tower
+            const buildings = useEditor.getState().project?.world.buildings ?? [];
+            const v = chooseView(buildings, [{ p: { x: b.x, z: b.z }, w: 1 }]);
+            fly.current = { x: b.x, z: b.z, zoom: Math.max(camera.zoom, 8), theta: v.az, phi: Math.min(0.62, Math.PI / 2 - v.el) };
           }
         }
       }
@@ -383,13 +439,20 @@ function FollowCam() {
     // lift the view toward top-down so buildings do not hide the incident
     const off = camera.position.clone().sub(controls.target);
     const sph = new THREE.Spherical().setFromVector3(off);
-    sph.phi += (0.62 - sph.phi) * k;
+    sph.phi += (f.phi - sph.phi) * k;
+    const dTheta = Math.atan2(Math.sin(f.theta - sph.theta), Math.cos(f.theta - sph.theta));
+    sph.theta += dTheta * k;
     off.setFromSpherical(sph);
     camera.position.copy(controls.target).add(off);
     const dz2 = (f.zoom - camera.zoom) * k;
     camera.zoom += dz2;
     camera.updateProjectionMatrix();
-    if (Math.abs(f.x - controls.target.x) + Math.abs(f.z - controls.target.z) < 0.4 && Math.abs(f.zoom - camera.zoom) < 0.05 && Math.abs(sph.phi - 0.62) < 0.02) {
+    if (
+      Math.abs(f.x - controls.target.x) + Math.abs(f.z - controls.target.z) < 0.4 &&
+      Math.abs(f.zoom - camera.zoom) < 0.05 &&
+      Math.abs(sph.phi - f.phi) < 0.02 &&
+      Math.abs(dTheta) < 0.02
+    ) {
       fly.current = null;
     }
   });

@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import type { ReactNode } from "react";
 import {
   Camera, MoonStar, Route, MapPinned, Boxes, PlayCircle, Scale,
-  Leaf, Users, ShieldCheck, Accessibility, Eye, Search, AudioLines, Cloud, Zap,
+  Leaf, Users, ShieldCheck, Accessibility, Eye, Search, Cloud, Zap,
 } from "lucide-react";
 
 export function Reveal({ children, className, delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
@@ -183,7 +183,7 @@ export function BuiltWith() {
   const items = [
     { icon: Eye, t: "Gemini vision", d: "Reads satellite imagery into roads, gates and buildings." },
     { icon: Search, t: "Search grounding", d: "Gemini + Google Search for real local prices and context." },
-    { icon: AudioLines, t: "Gemini TTS", d: "Narrates the night and the results aloud." },
+    { icon: Users, t: "Gemini narration", d: "Rewrites the night's incident captions in English or Hinglish." },
     { icon: Cloud, t: "Cloud Run", d: "Serverless backend, scales to zero between runs." },
     { icon: Zap, t: "TypeSafe Jev", d: "TypeSafe Jev for instant agent judgments — how actors behave, quick picks in under a second." },
   ];

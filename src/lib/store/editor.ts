@@ -22,7 +22,7 @@ import type {
 } from "@/lib/world/types";
 import { defaultScenario } from "@/lib/world/types";
 import { makeId, deepClone } from "@/lib/world/ids";
-import { makeDemoProject, DEMO_PROJECT_ID } from "@/lib/world/demo";
+import { makeDemoProject, DEMO_PROJECT_ID, DEMO_NAME, LEGACY_DEMO_NAMES, isLegacyDemo } from "@/lib/world/demo";
 import { makeBlankProject } from "@/lib/world/blank";
 import type { ActiveRun } from "@/lib/sim/runner";
 import { saveProject } from "@/lib/storage/projects";
@@ -240,7 +240,14 @@ export const useEditor = create<EditorState>((set, get) => ({
     void get().save();
   },
 
-  openProject: (p) => {
+  openProject: (raw) => {
+    // a saved copy of an older bundled demo is migrated to the current demo society
+    let p = raw;
+    if (isLegacyDemo(raw)) {
+      const fresh = makeDemoProject();
+      fresh.projectId = raw.projectId;
+      p = fresh;
+    }
     set({
       screen: "editor",
       project: p,
@@ -262,7 +269,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (!cur) return;
     const fresh = makeDemoProject();
     fresh.projectId = cur.projectId; // replace in place
-    fresh.name = cur.name === DEMO_NAME_DEFAULT ? fresh.name : cur.name;
+    fresh.name = cur.name === DEMO_NAME || LEGACY_DEMO_NAMES.includes(cur.name) ? fresh.name : cur.name;
     set((s) => ({
       project: fresh,
       dirty: true,
@@ -625,7 +632,6 @@ export const useEditor = create<EditorState>((set, get) => ({
   tickDisplay: () => set({ displayT: playbackClock.t }),
 }));
 
-const DEMO_NAME_DEFAULT = "Vasanth Nagar East";
 
 /* ------------------------------------------------------------------ */
 /* Autosave (debounced)                                                */

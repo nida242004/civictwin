@@ -656,37 +656,181 @@ function buildHospital(ctx: Ctx, clinic: boolean) {
   void r;
 }
 
+/**
+ * Stylised Nagara-style mandir: stepped jagati (plinth) with front steps, an
+ * open pillared mandapa with a stepped pyramidal roof, the garbhagriha under a
+ * curved, banded shikhara with corner urushringas, amalaka + golden kalash, a
+ * saffron dhvaja, and diyas / a deepastambha that glow warmly at night.
+ */
 function buildMandir(ctx: Ctx) {
-  const { g, c, W, D, H, r } = ctx;
-  const stone = c("#f0c79a");
-  const sand = c("#e0a56d");
-  const saffron = c("#e8791c");
-  const gold = glowRaw("#ffc83d");
-  const s = Math.min(W, D);
-  g.box(0, 0, 0, W, 0.7, D, c("#c9b49a")); // plinth
-  const hallH = Math.max(3.2, H * 0.55);
-  g.box(0, 0.7, D * 0.12, W * 0.92, hallH, D * 0.72, stone);
-  // porch columns on front
-  for (const x of [-0.32, -0.11, 0.11, 0.32]) g.box(x * W, 0.7, D / 2 - 0.2, 0.35, hallH * 0.8, 0.35, sand);
-  g.box(0, 0.7 + hallH * 0.8, D / 2 - 0.2, W * 0.8, 0.35, 0.8, saffron);
-  // sanctum + shikhara
-  const sw = s * 0.55;
-  const base = 0.7 + hallH;
-  g.box(0, 0.7, -D * 0.2, sw, hallH + 0.8, sw, sand);
-  let y = 0.7 + hallH + 0.8;
-  let wdt = sw * 1.02;
+  const { g, w, W, D, H, theme } = ctx;
+  const night = theme !== "daylight";
+  // keep the sandstone warm at night (lamp-lit) instead of the cool moonlight tone
+  const warmTone = theme === "night" ? [0.78, 0.6, 0.48] : theme === "sunset" ? [1, 0.86, 0.76] : [1, 1, 1];
+  const c = (hex: string) => {
+    const col = new THREE.Color(hex);
+    col.r *= warmTone[0];
+    col.g *= warmTone[1];
+    col.b *= warmTone[2];
+    return col;
+  };
+  const stone = c("#f2d3a8"); // light sandstone
+  const sand = c("#e3b27a");
+  const deep = c("#c98a52");
+  const saffron = c("#ef7d1a");
+  const red = c("#b8432a");
+  const gold = c("#e0a72a");
+  const goldGlow = glowRaw(night ? "#ffc845" : "#e6b33a");
+  const flame = glowRaw(night ? "#fff0b0" : "#f4d48a");
+
+  /* jagati — two-tier plinth */
+  g.box(0, 0, 0, W, 0.55, D, deep, 0, true);
+  g.box(0, 0.55, -0.2, W * 0.9, 0.5, D * 0.9, stone);
+  const floorY = 1.05;
+  // front steps (descending toward +z)
   for (let i = 0; i < 4; i++) {
-    const nxt = wdt * 0.74;
-    const h = Math.max(1.0, H * 0.14);
-    g.frustum(0, y, -D * 0.2, wdt, wdt, nxt, nxt, h, i % 2 ? saffron : stone, 0);
-    y += h;
-    wdt = nxt;
+    const sy = floorY - (i + 1) * (floorY / 4);
+    g.box(0, 0, D * 0.45 - 0.2 + i * 0.38, 3.4 + i * 0.25, sy + floorY / 4, 0.4, i % 2 ? stone : sand);
   }
-  g.lathe(0, y, -D * 0.2, [[wdt * 0.5, 0], [wdt * 0.45, 0.4], [0.1, 0.9]], 8, c("#d4a017"));
-  ctx.w.freeQuad([-0.3, y + 0.9, -D * 0.2], [0.3, y + 0.9, -D * 0.2], [0.3, y + 1.6, -D * 0.2], [-0.3, y + 1.6, -D * 0.2], gold);
-  g.frustum(0, base, D / 2 - 0.2, W * 0.5, 0.9, W * 0.12, 0.9, 1.6, saffron);
-  flag(ctx, -W / 2 + 1, 0.7, D / 2 - 1, 4.5);
-  void r;
+  // decorative band around the plinth
+  g.box(0, 0.4, 0, W + 0.06, 0.12, D + 0.06, red);
+
+  /* garbhagriha + shikhara (rear) */
+  const sz = -D * 0.2; // sanctum centre z
+  const sw = Math.min(W * 0.62, D * 0.5);
+  const sanctumH = 3.4;
+  g.box(0, floorY, sz, sw, sanctumH, sw, sand);
+  // offsets (ratha projections) on the three outer faces
+  g.box(0, floorY, sz, sw * 0.42, sanctumH, sw + 0.5, stone);
+  g.box(0, floorY, sz, sw + 0.5, sanctumH, sw * 0.42, stone);
+  g.box(0, floorY + sanctumH - 0.25, sz, sw + 0.7, 0.3, sw + 0.7, red); // cornice
+  // curved shikhara: stacked bands whose width follows a convex curve
+  const shH = Math.max(5.5, H - floorY - sanctumH - 2.4);
+  const bands = 9;
+  let y = floorY + sanctumH + 0.05;
+  const rAt = (t: number) => sw * (1.02 - 0.72 * Math.pow(t, 1.7));
+  for (let i = 0; i < bands; i++) {
+    const t0 = i / bands;
+    const t1 = (i + 1) / bands;
+    const h = shH / bands;
+    const b0 = rAt(t0);
+    const b1 = rAt(t1);
+    g.frustum(0, y, sz, b0, b0, b1, b1, h * 0.86, i % 3 === 2 ? deep : stone);
+    // thin horizontal lip (bhumi-amalaka line)
+    g.frustum(0, y + h * 0.86, sz, b1 * 1.04, b1 * 1.04, b1, b1, h * 0.14, sand);
+    // central vertical rib (latas) on each face
+    g.frustum(0, y, sz, b0 * 0.34, b0 + 0.18, b1 * 0.34, b1 + 0.18, h, sand);
+    g.frustum(0, y, sz, b0 + 0.18, b0 * 0.34, b1 + 0.18, b1 * 0.34, h, sand);
+    y += h;
+  }
+  // corner urushringas (miniature shikharas)
+  const us = sw * 0.3;
+  for (const sx of [-1, 1]) for (const szz of [-1, 1]) {
+    let uy = floorY + sanctumH + 0.05;
+    let uw = us;
+    for (let i = 0; i < 4; i++) {
+      const nw = uw * 0.78;
+      g.frustum(sx * (sw / 2 - us / 2), uy, sz + szz * (sw / 2 - us / 2), uw, uw, nw, nw, 0.55, i % 2 ? sand : stone);
+      uy += 0.55;
+      uw = nw;
+    }
+    g.lathe(sx * (sw / 2 - us / 2), uy, sz + szz * (sw / 2 - us / 2), [[uw * 0.6, 0], [uw * 0.7, 0.12], [uw * 0.6, 0.25], [0.05, 0.4]], 8, gold);
+  }
+  // amalaka (ribbed disc) + kalash + dhvaja
+  const top = rAt(1);
+  g.lathe(0, y, sz, [[top * 0.35, 0], [top * 0.62, 0.18], [top * 0.66, 0.38], [top * 0.62, 0.58], [top * 0.3, 0.75]], 14, stone);
+  y += 0.75;
+  g.lathe(0, y, sz, [[0.18, 0], [0.42, 0.25], [0.45, 0.45], [0.22, 0.7], [0.14, 0.85], [0.28, 0.95], [0.02, 1.35]], 10, gold);
+  w.freeQuad([-0.12, y + 1.0, sz + 0.3], [0.12, y + 1.0, sz + 0.3], [0.12, y + 1.35, sz + 0.3], [-0.12, y + 1.35, sz + 0.3], goldGlow);
+  // flag pole + saffron pennant
+  const poleX = top * 0.25;
+  g.box(poleX, y, sz, 0.08, 3.2, 0.08, c("#d6dbe3"));
+  const fy = y + 3.2;
+  g.freeTri([poleX, fy, sz], [poleX, fy - 1.0, sz], [poleX + 1.9, fy - 0.35, sz], night ? glowRaw("#ff8a1f").multiplyScalar(0.85) : saffron);
+  g.freeTri([poleX, fy - 1.0, sz], [poleX, fy, sz], [poleX + 1.9, fy - 0.35, sz], night ? glowRaw("#ff8a1f").multiplyScalar(0.85) : saffron);
+  // sanctum door + warm deity lamp (seen through the mandapa)
+  g.box(0, floorY, sz + sw / 2 + 0.26, 1.4, 2.3, 0.12, red);
+  w.freeQuad([-0.5, floorY + 0.15, sz + sw / 2 + 0.34], [0.5, floorY + 0.15, sz + sw / 2 + 0.34], [0.5, floorY + 1.95, sz + sw / 2 + 0.34], [-0.5, floorY + 1.95, sz + sw / 2 + 0.34], glowRaw(night ? "#ffcf6b" : "#c9873e"));
+
+  /* mandapa (front): open pillared hall with stepped roof */
+  const mz0 = sz + sw / 2 + 0.3; // back of hall
+  const mz1 = D / 2 - 1.5; // front of hall
+  const mw = W * 0.82;
+  const md = mz1 - mz0;
+  const mzc = (mz0 + mz1) / 2;
+  const pillarH = 2.7;
+  const cols = 4;
+  for (let i = 0; i < cols; i++) {
+    const px = -mw / 2 + 0.3 + (i * (mw - 0.6)) / (cols - 1);
+    for (const pz of [mz0 + 0.35, mzc, mz1 - 0.3]) {
+      if (pz === mzc && i > 0 && i < cols - 1) continue; // open centre aisle
+      g.box(px, floorY, pz, 0.42, 0.3, 0.42, sand); // base
+      g.box(px, floorY + 0.3, pz, 0.3, pillarH - 0.6, 0.3, stone);
+      g.box(px, floorY + pillarH - 0.3, pz, 0.5, 0.3, 0.5, sand); // bracket capital
+    }
+  }
+  // lamp-lit floor of the hall
+  if (night) {
+    const fl = glowRaw("#7a4a1c");
+    w.freeQuad([-mw / 2, floorY + 0.02, mz1], [mw / 2, floorY + 0.02, mz1], [mw / 2, floorY + 0.02, mz0], [-mw / 2, floorY + 0.02, mz0], fl);
+  }
+  const roofY = floorY + pillarH;
+  g.box(0, roofY, mzc, mw + 0.5, 0.35, md + 0.5, deep); // chhajja (eave)
+  g.box(0, roofY + 0.35, mzc, mw * 0.92, 0.5, md * 0.9, stone);
+  // phamsana: stepped pyramid of slabs
+  let ry = roofY + 0.85;
+  let rw = mw * 0.9;
+  let rd = md * 0.88;
+  for (let i = 0; i < 4; i++) {
+    g.frustum(0, ry, mzc, rw, rd, rw * 0.8, rd * 0.8, 0.5, i % 2 ? sand : stone);
+    g.box(0, ry + 0.5, mzc, rw * 0.84, 0.1, rd * 0.84, red);
+    ry += 0.6;
+    rw *= 0.76;
+    rd *= 0.76;
+  }
+  g.lathe(0, ry, mzc, [[rw * 0.5, 0], [rw * 0.55, 0.2], [0.2, 0.45], [0.18, 0.6], [0.02, 0.95]], 10, gold);
+  // toran (garland) over the front pillars
+  g.box(0, roofY - 0.25, mz1 + 0.02, mw * 0.9, 0.12, 0.08, saffron);
+
+  /* diyas along the plinth edge + deepastambha in the forecourt */
+  const diyaY = floorY + 0.02;
+  for (let i = 0; i < 9; i++) {
+    const x = -W * 0.42 + (i * W * 0.84) / 8;
+    if (Math.abs(x) < 1.9) continue; // keep the steps clear
+    const z = D * 0.45 - 0.35;
+    g.box(x, diyaY, z, 0.24, 0.1, 0.24, c("#8a4b2a"));
+    w.freeQuad([x - 0.06, diyaY + 0.1, z], [x + 0.06, diyaY + 0.1, z], [x, diyaY + 0.42, z], [x, diyaY + 0.42, z], flame);
+    w.freeQuad([x, diyaY + 0.1, z - 0.06], [x, diyaY + 0.1, z + 0.06], [x, diyaY + 0.42, z], [x, diyaY + 0.42, z], flame);
+  }
+  for (const sx of [-1, 1]) {
+    // side diyas along the sanctum
+    for (let k = 0; k < 3; k++) {
+      const x = sx * (W * 0.45 - 0.2);
+      const z = -D * 0.38 + k * (D * 0.25);
+      w.freeQuad([x, diyaY + 0.1, z - 0.06], [x, diyaY + 0.1, z + 0.06], [x, diyaY + 0.42, z], [x, diyaY + 0.42, z], flame);
+    }
+  }
+  // deepastambha (lamp pillar) beside the steps
+  const dx = W * 0.5 + 0.9;
+  const dz = D / 2 + 0.6;
+  g.box(dx, 0, dz, 0.8, 0.3, 0.8, deep);
+  g.box(dx, 0.3, dz, 0.3, 3.2, 0.3, stone);
+  for (let k = 0; k < 4; k++) {
+    const ly = 0.9 + k * 0.7;
+    const lw = 0.9 - k * 0.12;
+    g.box(dx, ly, dz, lw, 0.08, lw, sand);
+    for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const lx = dx + ox * lw * 0.45;
+      const lz = dz + oz * lw * 0.45;
+      w.freeQuad([lx - 0.05, ly + 0.08, lz], [lx + 0.05, ly + 0.08, lz], [lx, ly + 0.3, lz], [lx, ly + 0.3, lz], flame);
+    }
+  }
+  w.freeQuad([dx - 0.08, 3.5, dz], [dx + 0.08, 3.5, dz], [dx, 3.95, dz], [dx, 3.95, dz], flame);
+  // bell arch at the foot of the steps
+  g.box(-2.1, 0, D / 2 + 0.9, 0.18, 2.6, 0.18, gold);
+  g.box(2.1, 0, D / 2 + 0.9, 0.18, 2.6, 0.18, gold);
+  g.box(0, 2.6, D / 2 + 0.9, 4.4, 0.18, 0.18, gold);
+  g.lathe(0, 2.05, D / 2 + 0.9, [[0.05, 0.55], [0.22, 0.25], [0.26, 0]].reverse() as [number, number][], 8, gold);
 }
 
 function buildMasjid(ctx: Ctx) {

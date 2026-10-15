@@ -17,7 +17,7 @@ import { Html } from "@react-three/drei";
 import { Bangers } from "next/font/google";
 import { useSceneClock, useSceneDrama, useSceneRun } from "./sceneSource";
 import { BEAT_WINDOW_SEC, type ActiveBeat } from "@/lib/store/drama";
-import { getBeatLine, getSpeakingKey, speakKeyOf } from "@/lib/voice/voice";
+import { getBeatLine } from "@/lib/captions/captions";
 import type { ActorRef, BeatKind, DramaFrame } from "@/lib/sim/incidents";
 import type { Frame } from "@/lib/sim/engine";
 import { CHAR_SCALE } from "./characters";
@@ -369,7 +369,6 @@ function BubbleLive({ beat, text, index, slots }: { beat: ActiveBeat; text: stri
   const variant: Variant = VARIANT[beat.kind] ?? "round";
   const accent = ACCENT[beat.severity - 1] ?? ACCENT[0];
   const smooth = useRef(0);
-  const spk = useRef<HTMLSpanElement>(null);
 
   useFrame((_, dt) => {
     if (!group.current || !activeRun) return;
@@ -394,22 +393,13 @@ function BubbleLive({ beat, text, index, slots }: { beat: ActiveBeat; text: stri
     const stackX = slot > 0.5 ? (Math.round(slot) % 2 === 1 ? 50 : -50) : 0;
     const anchor = variant === "caption" ? "translate(-100%, -100%) translate(10px, -4px)" : "translate(-50%, -100%)";
     box.current.style.opacity = String(op);
-    box.current.style.transform = `${anchor} translate(${stackX + sx}px, ${-stackY + sy}px) scale(${(pop * overshoot * zoomK).toFixed(3)})`;
-    if (spk.current) spk.current.style.display = getSpeakingKey() === speakKeyOf(beat) ? "block" : "none";
-  });
+    box.current.style.transform = `${anchor} translate(${stackX + sx}px, ${-stackY + sy}px) scale(${(pop * overshoot * zoomK).toFixed(3)})`;  });
 
   return (
     <group ref={group}>
       <Html zIndexRange={[20, 0]} style={{ pointerEvents: "none" }} wrapperClass="praesidium-bubble">
         <div ref={box} style={{ position: "absolute", left: 0, top: 0, opacity: 0, transformOrigin: "50% 100%", pointerEvents: "none", willChange: "transform, opacity" }}>
           <BubbleBody variant={variant} text={text} accent={accent} sev={beat.severity} />
-          <span
-            ref={spk}
-            title="Speaking"
-            style={{ display: "none", position: "absolute", right: -8, top: -10, fontSize: 13, lineHeight: 1, background: "#0b121e", color: "#fde047", borderRadius: 9, padding: "2px 4px", border: "1px solid #fde047" }}
-          >
-            ))
-          </span>
         </div>
       </Html>
     </group>

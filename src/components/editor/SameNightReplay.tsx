@@ -14,7 +14,6 @@ import { OrbitControls } from "@react-three/drei";
 import type { StoredRun } from "@/lib/world/types";
 import { replayStoredRun, clockLabel, type ActiveRun } from "@/lib/sim/runner";
 import { createDramaStore, type DramaStore } from "@/lib/store/drama";
-import { prefetchBeats, startVoiceSession } from "@/lib/voice/voice";
 import { RoadsLayer, FacilitiesLayer, StreetlightsLayer, CamerasLayer } from "@/components/three/layers";
 import { BuildingsLayer } from "@/components/three/buildings";
 import { CharactersLayer } from "@/components/three/characters";
@@ -23,6 +22,7 @@ import { EventsLayer } from "@/components/three/playback";
 import { SceneSourceProvider, type SceneSource } from "@/components/three/sceneSource";
 import { SCENE_THEMES } from "@/components/three/NeighborhoodCanvas";
 import type { Headline } from "@/lib/sim/compare";
+import { planFit, type FitPlan } from "./replayCamera";
 import { outcomeLabel } from "@/lib/sim/labels";
 
 interface Shared {
@@ -98,7 +98,29 @@ function FocusRing({ x, z }: { x: number; z: number }) {
   );
 }
 
-function Side({ stored, run, shared, side, focus, drama }: { stored: StoredRun; run: ActiveRun; shared: Shared; side: number; focus: { x: number; z: number }; drama: DramaStore }) {
+/** Applies a FitPlan (center, zoom to fit extent, unoccluded view direction) to this side's camera. */
+function CamFit({ plan, shared }: { plan: FitPlan; shared: Shared }) {
+  const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void; minZoom: number; maxZoom: number } | null;
+  const camera = useThree((s) => s.camera) as THREE.OrthographicCamera;
+  const size = useThree((s) => s.size);
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  useEffect(() => {
+    if (!controls) return;
+    const { width, height } = sizeRef.current;
+    const zoom = Math.max(plan.minZoom, Math.min(plan.maxZoom, Math.min(width, height) / plan.extent));
+    shared.cam.owner = -1; // each side applies the same plan itself; no echo needed
+    camera.position.set(plan.center.x + plan.dir[0] * 300, plan.dir[1] * 300, plan.center.z + plan.dir[2] * 300);
+    camera.zoom = zoom;
+    camera.updateProjectionMatrix();
+    controls.target.set(plan.center.x, 0, plan.center.z);
+    camera.lookAt(plan.center.x, 0, plan.center.z);
+    controls.update();
+  }, [controls, camera, plan, shared]);
+  return null;
+}
+
+function Side({ stored, run, shared, side, focus, drama, plan }: { stored: StoredRun; run: ActiveRun; shared: Shared; side: number; focus: { x: number; z: number }; drama: DramaStore; plan: FitPlan }) {
   const source = useMemo<SceneSource>(
     () => ({
       run,
@@ -111,14 +133,14 @@ function Side({ stored, run, shared, side, focus, drama }: { stored: StoredRun; 
     [run, shared, stored, drama]
   );
   const w = stored.world;
-  const camPos: [number, number, number] = [focus.x + 120, 150, focus.z + 120];
+  const camPos: [number, number, number] = [plan.center.x + plan.dir[0] * 300, plan.dir[1] * 300, plan.center.z + plan.dir[2] * 300];
   return (
     <Canvas
       orthographic
       dpr={[1, 1.5]}
-      camera={{ position: camPos, zoom: 5.5, near: -800, far: 4000 }}
+      camera={{ position: camPos, zoom: 8, near: -800, far: 4000 }}
       gl={{ antialias: true, powerPreference: "high-performance" }}
-      onCreated={({ camera }) => camera.lookAt(focus.x, 0, focus.z)}
+      onCreated={({ camera }) => camera.lookAt(plan.center.x, 0, plan.center.z)}
     >
       <color attach="background" args={[theme.bg]} />
       <SceneSourceProvider value={source}>
@@ -148,12 +170,13 @@ function Side({ stored, run, shared, side, focus, drama }: { stored: StoredRun; 
         <OrbitControls
           makeDefault
           enableDamping={false}
-          target={[focus.x, 0, focus.z]}
+          target={[plan.center.x, 0, plan.center.z]}
           minZoom={0.6}
-          maxZoom={14}
+          maxZoom={16}
           mouseButtons={{ LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.ROTATE }}
           maxPolarAngle={Math.PI / 2.1}
         />
+        <CamFit plan={plan} shared={shared} />
         <CamSync shared={shared} side={side} />
       </SceneSourceProvider>
     </Canvas>
@@ -191,21 +214,7 @@ export default function SameNightReplay({ baseline, intervention, headline }: { 
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(2);
 
-  // Voice: only the focused side speaks (default: intervention) — never two voices at once.
   const dramas = useMemo(() => [createDramaStore(), createDramaStore()] as const, [runs]);
-  const [voiceSide, setVoiceSide] = useState<"A" | "B" | "off">("B");
-  useEffect(() => {
-    if (voiceSide === "off") return;
-    const i = voiceSide === "A" ? 0 : 1;
-    prefetchBeats((i === 0 ? runs.a : runs.b).result.beats ?? []);
-    return startVoiceSession({
-      drama: dramas[i],
-      getClock: () => shared.clock.t,
-      getSpeed: () => shared.speed,
-      isPlaying: () => shared.playing,
-      label: `compare-${voiceSide}`,
-    });
-  }, [voiceSide, dramas, runs, shared]);
   useEffect(() => {
     const id = setInterval(() => {
       setT(shared.clock.t);
@@ -215,6 +224,16 @@ export default function SameNightReplay({ baseline, intervention, headline }: { 
   }, [shared]);
 
   const focus = headline ?? { x: 0, z: 0 };
+  // Default: zoomed onto the headline incident + responding guard; toggle to fit the whole society.
+  const [fit, setFit] = useState<{ mode: "incident" | "society"; version: number }>({ mode: headline ? "incident" : "society", version: 0 });
+  const plan = useMemo(
+    () =>
+      planFit(fit.mode, fit.version, headline, [
+        { stored: baseline, run: runs.a },
+        { stored: intervention, run: runs.b },
+      ]),
+    [fit, headline, baseline, intervention, runs]
+  );
   const startTime = baseline.scenario.startTime;
   const oa = outcomeAt(baseline, headline, t);
   const ob = outcomeAt(intervention, headline, t);
@@ -229,7 +248,7 @@ export default function SameNightReplay({ baseline, intervention, headline }: { 
           ["B · With intervention", intervention, runs.b, ob],
         ] as const).map(([label, stored, run, o], i) => (
           <div key={i} className="relative h-[340px] bg-[#0b121e]">
-            <Side stored={stored} run={run} shared={shared} side={i} focus={focus} drama={dramas[i]} />
+            <Side stored={stored} run={run} shared={shared} side={i} focus={focus} drama={dramas[i]} plan={plan} />
             <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">{label}</div>
             <div className={`pointer-events-none absolute bottom-2 left-2 rounded px-2 py-0.5 text-[11px] font-semibold text-white ${toneCls(o)}`}>{o?.label}</div>
           </div>
@@ -259,18 +278,6 @@ export default function SameNightReplay({ baseline, intervention, headline }: { 
             {s}×
           </button>
         ))}
-        <span className="flex shrink-0 items-center gap-0.5" title="Which side speaks (one voice at a time)">
-          <span className="mr-0.5 text-[#64748b]">Voice</span>
-          {(["A", "B", "off"] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setVoiceSide(v)}
-              className={`rounded px-1.5 py-0.5 ${voiceSide === v ? "bg-white text-[#0f172a]" : "text-[#94a3b8] hover:text-white"}`}
-            >
-              {v === "off" ? "Mute" : v}
-            </button>
-          ))}
-        </span>
         <span className="w-28 shrink-0 font-mono">
           {clockLabel(t, startTime)} <span className="text-[#64748b]">/ {clockLabel(duration, startTime).slice(0, 5)}</span>
         </span>
@@ -296,6 +303,15 @@ export default function SameNightReplay({ baseline, intervention, headline }: { 
             />
           )}
         </div>
+        {headline && (
+          <button
+            className="rounded border border-[#38bdf8]/60 px-2 py-0.5 text-[#7dd3fc] hover:bg-[#38bdf8]/10"
+            title="Switch both views between the headline incident and the whole society"
+            onClick={() => setFit((f) => ({ mode: f.mode === "incident" ? "society" : "incident", version: f.version + 1 }))}
+          >
+            {fit.mode === "incident" ? "Fit society" : "Focus incident"}
+          </button>
+        )}
         {headline && (
           <button
             className="rounded border border-[#facc15]/60 px-2 py-0.5 text-[#facc15] hover:bg-[#facc15]/10"

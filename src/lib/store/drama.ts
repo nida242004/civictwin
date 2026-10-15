@@ -9,7 +9,7 @@
  *   active beats changes, so subscribers re-render rarely.
  * - `followIncident`: cinematic camera toggle.
  *
- * Consumers (voice system, toasts, bubbles) use `useActiveBeats()`.
+ * Consumers (toasts, bubbles) use `useActiveBeats()`.
  * Beats are read defensively: `result.beats` may be absent.
  */
 
@@ -26,7 +26,7 @@ interface DramaState {
   setFollowIncident: (v: boolean) => void;
   /** Beats within (t - windowSec, t], oldest first. */
   activeBeats: ActiveBeat[];
-  /** Most recent beat that has already fired (for voice/toasts). */
+  /** Most recent beat that has already fired (for toasts). */
   latestBeat: ActiveBeat | null;
   setActiveBeats: (b: ActiveBeat[], latest: ActiveBeat | null) => void;
   /** Show Jev decision thought bubbles during playback. */
@@ -64,7 +64,7 @@ export function useActiveBeats(): ActiveBeat[] {
   return useDrama((s) => s.activeBeats);
 }
 
-/** Subscribe imperatively (e.g. voice system): called when a *new* beat starts. */
+/** Subscribe imperatively (e.g. toasts): called when a *new* beat starts. */
 export function subscribeNewBeats(cb: (beat: ActiveBeat) => void, store: DramaStore = useDrama): () => void {
   let seen = new Set<number>();
   return store.subscribe((s, prev) => {

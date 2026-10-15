@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Line as DreiLine } from "@react-three/drei";
 import { useEditor, liveMove } from "@/lib/store/editor";
-import type { Building, CctvCamera, Facility, Guard, Road, Streetlight } from "@/lib/world/types";
+import type { CctvCamera, Facility, Guard, Road, Streetlight } from "@/lib/world/types";
 
 /* ------------------------------------------------------------------ */
 /* native 3D label badge (zero DOM nodes / zero createRoot)            */
@@ -486,117 +486,7 @@ function handlePlacementAtPoint(p: { x: number; z: number }) {
 /* Buildings                                                           */
 /* ------------------------------------------------------------------ */
 
-const BUILDING_PALETTES = {
-  night: {
-    residential: ["#3b4959", "#475569", "#3e526d", "#4b5e78", "#536885"],
-    commercial: ["#1e3a5f", "#244a78", "#1f4470", "#2b568c", "#1d3557"],
-    community: "#0d9488",
-    emissive: "#0f172a",
-    emissiveIntensity: 0.05,
-  },
-  sunset: {
-    residential: ["#574438", "#6b5446", "#785e4f", "#664f42", "#5e493d"],
-    commercial: ["#4a3038", "#5c3d47", "#6e4753", "#593943", "#4d323b"],
-    community: "#c2410c",
-    emissive: "#7c2d12",
-    emissiveIntensity: 0.1,
-  },
-  daylight: {
-    residential: ["#e2e8f0", "#cbd5e1", "#e0e7ff", "#f1f5f9", "#dbeafe"],
-    commercial: ["#94a3b8", "#64748b", "#475569", "#78889b", "#5b6d80"],
-    community: "#14b8a6",
-    emissive: "#000000",
-    emissiveIntensity: 0,
-  },
-};
-
 export { BuildingsLayer } from "./buildings";
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function LegacyBuildingsLayer({
-  buildings,
-  selectedId,
-  theme = "night",
-}: {
-  buildings: Building[];
-  selectedId: string | null;
-  theme?: "night" | "sunset" | "daylight";
-}) {
-  const meshRef = useRef<THREE.InstancedMesh>(null);
-  const select = useEditor((s) => s.select);
-  const palette = BUILDING_PALETTES[theme] ?? BUILDING_PALETTES.night;
-
-  const count = buildings.length;
-  useEffect(() => {
-    const mesh = meshRef.current;
-    if (!mesh) return;
-    const m = new THREE.Matrix4();
-    const color = new THREE.Color();
-    buildings.forEach((b, i) => {
-      m.makeRotationY(b.rotation);
-      m.setPosition(b.x, b.height / 2, b.z);
-      const scale = new THREE.Matrix4().makeScale(b.width, b.height, b.depth);
-      m.multiply(scale);
-      mesh.setMatrixAt(i, m);
-      if (b.category === "commercial") {
-        color.set(palette.commercial[i % palette.commercial.length]);
-      } else if (b.category === "community") {
-        color.set(palette.community);
-      } else {
-        color.set(palette.residential[i % palette.residential.length]);
-      }
-      mesh.setColorAt(i, color);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.count = count;
-  }, [buildings, count, palette]);
-
-  const selected = buildings.find((b) => b.id === selectedId);
-
-  return (
-    <group>
-      <instancedMesh
-        ref={meshRef}
-        args={[undefined, undefined, Math.max(count, 1)]}
-        onPointerDown={(e) => {
-          const s = useEditor.getState();
-          if (s.tool === "road") {
-            // Allow raycasting down to ground plane when drawing roads near buildings
-            return;
-          }
-          e.stopPropagation();
-          const iid = e.instanceId ?? null;
-          if (s.tool !== "select" || iid === null) {
-            if (iid !== null && s.tool !== "select") {
-              const b = buildings[iid];
-              if (b) handlePlacementAtPoint({ x: b.x, z: b.z });
-            }
-            return;
-          }
-          const b = buildings[iid];
-          if (b) select({ kind: "building", id: b.id });
-        }}
-      >
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
-          roughness={theme === "daylight" ? 0.65 : 0.78}
-          metalness={0.12}
-          emissive={palette.emissive}
-          emissiveIntensity={palette.emissiveIntensity}
-        />
-      </instancedMesh>
-
-      {selected && (
-        <group position={[selected.x, 0, selected.z]} rotation={[0, selected.rotation, 0]}>
-          <lineSegments position={[0, selected.height / 2, 0]}>
-            <edgesGeometry args={[new THREE.BoxGeometry(selected.width, selected.height, selected.depth)]} />
-            <lineBasicMaterial color="#38bdf8" />
-          </lineSegments>
-        </group>
-      )}
-    </group>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* Facilities                                                          */

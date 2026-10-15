@@ -35,7 +35,7 @@ export default function EditorShell() {
   useEffect(() => { if (compareOpen) setEverCompare(true); }, [compareOpen]);
 
   useEffect(() => {
-    (window as any).__praesidiumEditor = useEditor;
+    if (process.env.NODE_ENV !== "production") (window as any).__praesidiumEditor = useEditor; // dev/test hook
   }, []);
 
   // global keyboard shortcuts

@@ -7,7 +7,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { ablate, fmtInr, getCachedAblation, headlineDiff, RISK_EXPLAINER, type AblationResult } from "@/lib/sim/compare";
+import { ablateStreaming } from "@/lib/sim/verifyClient";
+import { fmtInr, getCachedAblation, headlineDiff, RISK_EXPLAINER, type AblationResult } from "@/lib/sim/compare";
 import { eventTypeLabel } from "@/lib/sim/labels";
 import type { StoredRun } from "@/lib/world/types";
 
@@ -523,6 +524,7 @@ function signed(n: number, unit = ""): string {
 
 export function CostEffectTable({ baseline, intervention }: { baseline: StoredRun; intervention: StoredRun }) {
   const [res, setRes] = useState<AblationResult | null>(() => getCachedAblation(intervention.id));
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   useEffect(() => {
     let alive = true;
     if (getCachedAblation(intervention.id)) {
@@ -530,12 +532,18 @@ export function CostEffectTable({ baseline, intervention }: { baseline: StoredRu
       return;
     }
     setRes(null);
-    // let the dialog paint first; each single-change re-run is ~100 ms
+    setProgress(null);
+    // let the dialog paint first; re-runs happen in a Web Worker (chunked main-thread fallback)
+    const ctrl = new AbortController();
     const id = setTimeout(() => {
-      void ablate(baseline, intervention, { yieldBetween: true }).then((r) => alive && setRes(r));
+      void ablateStreaming(baseline, intervention, {
+        signal: ctrl.signal,
+        onProgress: (done, total) => alive && setProgress({ done, total }),
+      }).then((r) => alive && r && setRes(r));
     }, 50);
     return () => {
       alive = false;
+      ctrl.abort();
       clearTimeout(id);
     };
   }, [baseline, intervention]);
@@ -548,7 +556,7 @@ export function CostEffectTable({ baseline, intervention }: { baseline: StoredRu
       </div>
       {!res ? (
         <div className="flex items-center gap-2 px-3 py-4 text-xs text-[#5c6470]">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-[#2e7d5b]" /> Re-running the baseline once per change (same seed)…
+          <span className="h-2 w-2 animate-pulse rounded-full bg-[#2e7d5b]" /> Re-running the baseline once per change (same seed)…{progress && progress.total > 0 ? ` ${progress.done}/${progress.total}` : ""}
         </div>
       ) : res.rows.length === 0 ? (
         <div className="px-3 py-4 text-xs text-[#5c6470]">No physical changes between the two runs (only scenario settings differ).</div>

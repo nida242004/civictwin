@@ -8,7 +8,7 @@
  *   4. Gemini can then write the explanation (existing planner flow)
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useEditor } from "@/lib/store/editor";
 import { applyAiProposal } from "@/lib/run-actions";
@@ -16,12 +16,12 @@ import {
   candidateProposal,
   generateCandidates,
   heuristicScore,
-  verifyCandidate,
   type Candidate,
   type CandidateScore,
   type VerifiedPick,
 } from "@/lib/ai/quickpicks";
 import { fmtInr } from "@/lib/sim/compare";
+import { verifyCandidatesStreaming } from "@/lib/sim/verifyClient";
 import { cn } from "@/lib/utils";
 
 type Row = Candidate & { score: CandidateScore };
@@ -37,6 +37,9 @@ export default function QuickPicks({ onExplain }: { onExplain: (message: string)
   const [busy, setBusy] = useState(false);
   const [verified, setVerified] = useState<Record<string, VerifiedPick | "running">>({});
   const [applied, setApplied] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const run = async () => {
     if (!project || !baseline) return;
@@ -85,12 +88,21 @@ export default function QuickPicks({ onExplain }: { onExplain: (message: string)
     setBusy(false);
 
     // stage 2: measured effect of the top 3 (same seed, one change at a time)
-    for (const c of ranked.slice(0, 3)) {
-      setVerified((v) => ({ ...v, [c.id]: "running" }));
-      await new Promise((r) => setTimeout(r, 20));
-      const v = verifyCandidate(baseline, c);
-      setVerified((cur) => ({ ...cur, [c.id]: v }));
-    }
+    // (off the main thread in a Web Worker; results stream in as each finishes)
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const top = ranked.slice(0, 3);
+    setProgress({ done: 0, total: top.length });
+    await verifyCandidatesStreaming(baseline, top, {
+      signal: ctrl.signal,
+      onStart: (id) => setVerified((v) => ({ ...v, [id]: "running" })),
+      onResult: (id, v) => {
+        setVerified((cur) => ({ ...cur, [id]: v }));
+        setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+      },
+    });
+    if (!ctrl.signal.aborted) setProgress(null);
   };
 
   const explain = () => {
@@ -134,6 +146,17 @@ export default function QuickPicks({ onExplain }: { onExplain: (message: string)
           <div className="mt-2 text-[10px] text-[#6b5a8e]">
             {rows.length} candidates · {source === "jev" ? "scored by TypeSafe Jev" : "Jev unavailable — rule-based scores"} in {ms} ms
           </div>
+          {progress && (
+            <div className="mt-1.5" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
+              <div className="flex justify-between text-[10px] text-[#6b5a8e]">
+                <span>Simulating same night, one change at a time…</span>
+                <span>{progress.done}/{progress.total}</span>
+              </div>
+              <div className="mt-0.5 h-1 overflow-hidden rounded bg-[#ede4ff]">
+                <div className="h-full bg-[#5b21b6] transition-all" style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
+              </div>
+            </div>
+          )}
           <ol className="mt-1.5 space-y-1.5">
             {rows.slice(0, 8).map((r, i) => {
               const v = verified[r.id];

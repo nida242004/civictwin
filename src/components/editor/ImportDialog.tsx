@@ -286,7 +286,7 @@ export default function ImportDialog() {
       interventionRun: null,
     };
     // dev hook: lets scripts snapshot a live import (used to build public/samples/*)
-    (window as unknown as Record<string, unknown>).__praesidiumLastImport = project;
+    if (process.env.NODE_ENV !== "production") (window as unknown as Record<string, unknown>).__praesidiumLastImport = project;
     openProject(project);
     setOpen(false);
     reset();

@@ -1,25 +1,59 @@
 /**
- * Bundled deterministic demonstration neighborhood — "Vasanth Nagar East".
+ * Bundled deterministic demonstration society — "Shanti Vihar RWA".
+ *
+ * A gated Indian residential welfare association laid out as a 3×3 grid:
+ * the centre cell is a park with a Shiv Mandir, a clubhouse and a kids'
+ * play area; the eight outer cells each hold an apartment tower (Block A–H).
+ * One guarded main gate on the south wall, a padlocked service gate on the
+ * north wall, a walking track along the compound wall, and a few deliberate
+ * — realistic — security gaps (dark back corners, faulty lamps, CCTV only at
+ * the gate and clubhouse, a patrol that skips the back of the society).
  *
  * Fully procedural local geometry (no remote map provider). Deterministic:
  * the same layout is generated every time. Fictional place names.
  */
 
-import type { Building, Facility, Guard, Road, Streetlight, CctvCamera, World, BuildingCategory } from "./types";
+import type {
+  Building,
+  CctvCamera,
+  Facility,
+  Guard,
+  Road,
+  SiteLayers,
+  Streetlight,
+  Vec2,
+  World,
+} from "./types";
 import { defaultScenario } from "./types";
 import { seededId } from "./ids";
-import { makeRng } from "../sim/rng";
 
-export const DEMO_PROJECT_ID = "demo_vasanth_nagar_east";
-export const DEMO_NAME = "Vasanth Nagar East";
+export const DEMO_PROJECT_ID = "demo_shanti_vihar_rwa";
+export const DEMO_NAME = "Shanti Vihar RWA";
+/** Names of earlier bundled demos (used to migrate saved projects on load / reset). */
+export const LEGACY_DEMO_NAMES = ["Vasanth Nagar East"];
+export const LEGACY_DEMO_IDS = ["demo_vasanth_nagar_east"];
 export const DEMO_DESCRIPTION =
-  "A fictional mid-size Indian neighborhood used for demonstrations: two main roads, three cross lanes, a small bazaar street, a lakeside park, a bus stop, and a community centre. Comes with street lighting, a few CCTV cameras, and two night patrol guards. Fully editable.";
+  "A fictional gated residential society (RWA) used for demonstrations: eight apartment blocks around a central park with a Shiv Mandir, clubhouse and kids' play area, one guarded main gate, a padlocked service gate, a compound wall with a walking track — and a few realistic gaps: dark back corners, faulty lamps, CCTV only at the gate and clubhouse. Fully editable.";
 
-const W = 420;
-const D = 340;
+/**
+ * Seed of the bundled demo night. Chosen so the default Typical Night tells the
+ * full story: a wall-climb at the dark corner behind Block F → chain snatching in
+ * a blind spot → a patrol responding from across the society → escape over the
+ * wall; later a burglary via the padlocked service gate and the gate guard dozing.
+ */
+export const DEMO_SEED = 62;
+
+/** Wall half-extent (compound wall is a square ±WALL). */
+const WALL = 104;
+/** Walking-track half-extent (inside the wall). */
+const TRACK = 92;
+/** Grid drives (the "#" of the 3×3 layout). */
+const GRID = 35;
+
+const W = 264;
+const D = 264;
 
 export function buildDemoWorld(): World {
-  const rng = makeRng(0xdea1);
   const roads: Road[] = [];
   const buildings: Building[] = [];
   const facilities: Facility[] = [];
@@ -27,322 +61,284 @@ export function buildDemoWorld(): World {
   const cameras: CctvCamera[] = [];
   const guards: Guard[] = [];
 
-  let n = 0;
+  let rn = 0;
+  const road = (name: string, points: Vec2[], width: number, category: "road" | "path" = "road") => {
+    roads.push({ id: seededId("rd", rn++), name, points, width, category, pedestrian: true });
+  };
 
   /* ------------------------- roads ------------------------- */
-  // horizontal main roads + cross lanes
-  const hRoads: { z: number; width: number; name: string; category: "road" | "path" }[] = [
-    { z: -90, width: 8, name: "1st Main Road", category: "road" },
-    { z: -10, width: 5.5, name: "1st Cross Lane", category: "road" },
-    { z: 70, width: 5.5, name: "2nd Cross Lane", category: "road" },
-    { z: 140, width: 7, name: "Lake View Road", category: "road" },
-  ];
-  const vRoads: { x: number; width: number; name: string }[] = [
-    { x: -150, width: 6.5, name: "East Avenue" },
-    { x: -30, width: 6.5, name: "Bazaar Street" },
-    { x: 90, width: 6.5, name: "Temple Street" },
-  ];
-
-  for (const [i, r] of hRoads.entries()) {
-    roads.push({
-      id: seededId("rd_h", i),
-      name: r.name,
-      points: [
-        { x: -W / 2, z: r.z },
-        { x: W / 2, z: r.z },
-      ],
-      width: r.width,
-      category: r.category,
-      pedestrian: true,
-    });
-  }
-  for (const [i, r] of vRoads.entries()) {
-    roads.push({
-      id: seededId("rd_v", i),
-      name: r.name,
-      points: [
-        { x: r.x, z: -D / 2 },
-        { x: r.x, z: D / 2 },
-      ],
-      width: r.width,
-      category: "road",
-      pedestrian: true,
-    });
-  }
-
-  // pedestrian gully path between Bazaar St and Temple St
-  roads.push({
-    id: seededId("rd_p", 0),
-    name: "Gully Path",
-    points: [
-      { x: -30, z: 30 },
-      { x: 20, z: 30 },
-      { x: 20, z: 70 },
+  // outside the wall
+  road("100 Ft Main Road", [{ x: -W / 2, z: 121 }, { x: W / 2, z: 121 }], 9);
+  road("Back Service Lane", [{ x: 0, z: -119 }, { x: W / 2, z: -119 }], 4);
+  // internal 3×3 grid drives (the centre square is the park ring)
+  road("West Drive", [{ x: -GRID, z: -TRACK }, { x: -GRID, z: TRACK }], 6);
+  road("East Drive", [{ x: GRID, z: -TRACK }, { x: GRID, z: TRACK }], 6);
+  road("North Drive", [{ x: -TRACK, z: -GRID }, { x: TRACK, z: -GRID }], 6);
+  road("South Drive", [{ x: -TRACK, z: GRID }, { x: TRACK, z: GRID }], 6);
+  // main gate drive (outer road → gate → park ring)
+  road("Main Gate Drive", [{ x: 0, z: 121 }, { x: 0, z: WALL }, { x: 0, z: GRID }], 7);
+  // service lane through the padlocked north gate
+  road("Service Lane", [{ x: 52, z: -TRACK }, { x: 52, z: -WALL }, { x: 52, z: -119 }], 4);
+  // walking track along the compound wall
+  road(
+    "Walking Track",
+    [
+      { x: -TRACK, z: -TRACK },
+      { x: TRACK, z: -TRACK },
+      { x: TRACK, z: TRACK },
+      { x: -TRACK, z: TRACK },
+      { x: -TRACK, z: -TRACK },
     ],
-    width: 2.2,
-    category: "path",
-    pedestrian: true,
-  });
-  // park entrance path connecting the loop to Temple Street
-  roads.push({
-    id: seededId("rd_p", 2),
-    name: "Park Entrance Path",
-    points: [
-      { x: 90, z: 20 },
-      { x: 124, z: 20 },
-    ],
-    width: 2.2,
-    category: "path",
-    pedestrian: true,
-  });
-  // park loop
-  const parkC = { x: 150, z: 20 };
-  const loop: { x: number; z: number }[] = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    loop.push({ x: parkC.x + Math.cos(a) * 26, z: parkC.z + Math.sin(a) * 22 });
+    2.6,
+    "path"
+  );
+  // park paths
+  const parkC = { x: -8, z: 6 };
+  const loop: Vec2[] = [];
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    loop.push({ x: parkC.x + Math.cos(a) * 15, z: parkC.z + Math.sin(a) * 13 });
   }
-  roads.push({
-    id: seededId("rd_p", 1),
-    name: "Park Loop Path",
-    points: [...loop, loop[0]],
-    width: 2,
-    category: "path",
-    pedestrian: true,
-  });
+  road("Park Loop", [...loop, loop[0]], 2.2, "path");
+  road("Park Cross Path", [{ x: -GRID, z: parkC.z }, { x: GRID, z: parkC.z }], 2.4, "path");
+  road("Mandir Path", [{ x: 14, z: -GRID }, { x: 14, z: GRID }], 2.4, "path");
 
-  /* ------------------------- buildings ------------------------- */
-  const vcx = vRoads.map((v) => v.x);
-  const nearV = (x: number) => vcx.some((vx) => Math.abs(x - vx) < 10);
-
-  interface RowSpec {
+  /* ------------------------- blocks ------------------------- */
+  interface BlockSpec {
+    letter: string;
+    x: number;
     z: number;
-    side: 1 | -1; // 1 = building south of road (entrance faces north/-z side is road) → entrance at z - side*offset
-    x0: number;
-    x1: number;
-    base: BuildingCategory;
-    namePrefix: string;
+    w: number;
+    d: number;
+    floors: number;
+    /** entrance point + where its footpath meets the drive */
+    door: Vec2;
+    spoke: Vec2;
+    occ: number;
   }
-
-  const rows: RowSpec[] = [
-    { z: -90, side: -1, x0: -W / 2 + 14, x1: W / 2 - 14, base: "residential", namePrefix: "1st Main" }, // north side
-    { z: -90, side: 1, x0: -W / 2 + 14, x1: W / 2 - 14, base: "commercial", namePrefix: "1st Main" }, // south side shops
-    { z: -10, side: -1, x0: -W / 2 + 20, x1: W / 2 - 40, base: "residential", namePrefix: "1st Cross" },
-    { z: -10, side: 1, x0: -W / 2 + 20, x1: 110, base: "residential", namePrefix: "1st Cross" },
-    { z: 70, side: -1, x0: -W / 2 + 20, x1: 100, base: "residential", namePrefix: "2nd Cross" },
-    { z: 70, side: 1, x0: -W / 2 + 20, x1: W / 2 - 50, base: "residential", namePrefix: "2nd Cross" },
-    { z: 140, side: -1, x0: -W / 2 + 14, x1: W / 2 - 14, base: "mixed", namePrefix: "Lake View" },
+  const blocks: BlockSpec[] = [
+    { letter: "A", x: 21, z: 64, w: 22, d: 24, floors: 6, door: { x: 10, z: 64 }, spoke: { x: 0, z: 64 }, occ: 46 },
+    { letter: "B", x: 64, z: 63, w: 26, d: 18, floors: 7, door: { x: 64, z: 54 }, spoke: { x: 64, z: GRID }, occ: 52 },
+    { letter: "C", x: 64, z: 0, w: 18, d: 30, floors: 8, door: { x: 55, z: 0 }, spoke: { x: GRID, z: 0 }, occ: 60 },
+    { letter: "D", x: 64, z: -63, w: 26, d: 18, floors: 6, door: { x: 64, z: -54 }, spoke: { x: 64, z: -GRID }, occ: 44 },
+    { letter: "E", x: 0, z: -64, w: 30, d: 18, floors: 7, door: { x: 0, z: -55 }, spoke: { x: 0, z: -GRID }, occ: 54 },
+    { letter: "F", x: -64, z: -63, w: 26, d: 18, floors: 5, door: { x: -64, z: -54 }, spoke: { x: -64, z: -GRID }, occ: 38 },
+    { letter: "G", x: -64, z: 0, w: 18, d: 30, floors: 8, door: { x: -55, z: 0 }, spoke: { x: -GRID, z: 0 }, occ: 58 },
+    { letter: "H", x: -64, z: 63, w: 26, d: 18, floors: 6, door: { x: -64, z: 54 }, spoke: { x: -64, z: GRID }, occ: 46 },
   ];
-
-  let bn = 0;
-  for (const [ri, row] of rows.entries()) {
-    let x = row.x0;
-    while (x < row.x1) {
-      const w = rng.range(11, 19);
-      const gap = rng.range(4, 9);
-      if (x + w > row.x1) break;
-      const cx = x + w / 2;
-      x += w + gap;
-      if (nearV(cx)) continue;
-      // skip park area
-      if (Math.abs(cx - parkC.x) < 52 && Math.abs(row.z - parkC.z) < 60) continue;
-
-      const category: BuildingCategory =
-        row.base === "residential" && rng.next() < 0.15 ? "commercial" : row.base;
-      const isRes = category === "residential" || category === "mixed";
-      const floors = isRes ? rng.int(3, 5) : rng.int(1, 2);
-      const depth = rng.range(9, 13);
-      const setback = 3 + (hRoads.find((h) => h.z === row.z)?.width ?? 5.5) / 2;
-      const bz = row.z + row.side * (setback + depth / 2);
-      buildings.push({
-        id: seededId("bd", bn),
-        name: `${row.namePrefix} · ${bn + 1}`,
-        x: cx,
-        z: bz,
-        width: w,
-        depth,
-        rotation: 0,
-        height: floors * 3,
-        floors,
-        category,
-        occupancy: isRes ? rng.int(10, 42) : rng.int(2, 9),
-        entrance: { x: cx, z: row.z + row.side * setback },
-      });
-      bn += 1;
-    }
-    void ri;
-  }
-
-  // bazaar street shops (both sides of Bazaar Street between 1st Main & 2nd Cross)
-  for (let k = 0; k < 8; k++) {
-    const side = k % 2 === 0 ? 1 : -1;
-    const bz = -30 + Math.floor(k / 2) * 34 + side * 7.5;
-    if (Math.abs(bz) > 60) continue;
+  blocks.forEach((b, i) => {
     buildings.push({
-      id: seededId("bd_bazaar", k),
-      name: `Bazaar Shop ${k + 1}`,
-      x: -30 + (side === 1 ? -6.5 : 6.5),
-      z: bz,
-      width: 8.5,
-      depth: 7,
+      id: seededId("bd_blk", i),
+      name: `Block ${b.letter}`,
+      x: b.x,
+      z: b.z,
+      width: b.w,
+      depth: b.d,
       rotation: 0,
-      height: 6,
-      floors: 2,
-      category: "commercial",
-      occupancy: rng.int(2, 6),
-      entrance: { x: -30, z: bz + (side === 1 ? -3.5 : 3.5) },
+      height: b.floors * 3,
+      floors: b.floors,
+      category: "residential",
+      occupancy: b.occ,
+      entrance: b.door,
     });
-  }
-
-  /* ------------------------- facilities ------------------------- */
-  facilities.push({
-    id: seededId("fc", n++),
-    name: "Vasanth Park",
-    type: "park",
-    x: parkC.x,
-    z: parkC.z,
-    radius: 34,
-  });
-  facilities.push({
-    id: seededId("fc", n++),
-    name: "Bus Stop · 1st Main",
-    type: "bus_stop",
-    x: 30,
-    z: -95,
-  });
-  facilities.push({
-    id: seededId("fc", n++),
-    name: "Community Centre",
-    type: "community_centre",
-    x: 60,
-    z: 44,
-  });
-  facilities.push({
-    id: seededId("fc", n++),
-    name: "Night Clinic",
-    type: "clinic",
-    x: -160,
-    z: 25,
-  });
-  facilities.push({
-    id: seededId("fc", n++),
-    name: "Sri Muniyappa Temple",
-    type: "place_of_worship",
-    x: 99,
-    z: 115,
+    // start the footpath just outside the door so the entrance connector links to it
+    const len = Math.hypot(b.spoke.x - b.door.x, b.spoke.z - b.door.z);
+    const start = { x: b.door.x + ((b.spoke.x - b.door.x) / len) * 0.8, z: b.door.z + ((b.spoke.z - b.door.z) / len) * 0.8 };
+    road(`Block ${b.letter} Footpath`, [start, b.spoke], 2.2, "path");
   });
 
-  // community centre building
+  // centre: Shiv Mandir + clubhouse; near the gate: a small kirana store
   buildings.push({
-    id: seededId("bd_cc", 0),
-    name: "Community Centre",
-    x: 60,
-    z: 40,
-    width: 16,
+    id: seededId("bd_mandir", 0),
+    name: "Shiv Mandir",
+    x: 18,
+    z: -17,
+    width: 11,
+    depth: 14,
+    rotation: 0,
+    height: 13,
+    floors: 1,
+    category: "community",
+    occupancy: 2,
+    entrance: { x: 18, z: -9.5 },
+  });
+  buildings.push({
+    id: seededId("bd_club", 0),
+    name: "Clubhouse",
+    x: 17,
+    z: 20,
+    width: 15,
     depth: 10,
     rotation: 0,
     height: 6,
     floors: 2,
     category: "community",
-    occupancy: 6,
-    entrance: { x: 60, z: 45 },
+    occupancy: 4,
+    entrance: { x: 17, z: 25.5 },
   });
-  bn += 1;
+  buildings.push({
+    id: seededId("bd_shop", 0),
+    name: "Daily Needs Kirana Store",
+    x: -21,
+    z: 46,
+    width: 11,
+    depth: 7,
+    rotation: 0,
+    height: 4,
+    floors: 1,
+    category: "commercial",
+    occupancy: 2,
+    entrance: { x: -21, z: 42 },
+  });
+
+  /* ------------------------- facilities ------------------------- */
+  let fn = 0;
+  const fac = (f: Omit<Facility, "id">) => facilities.push({ id: seededId("fc", fn++), ...f });
+  fac({ name: "Central Park", type: "park", x: parkC.x, z: parkC.z + 2, radius: 19 });
+  fac({ name: "Shiv Mandir", type: "place_of_worship", x: 18, z: -17 });
+  fac({ name: "Clubhouse", type: "community_centre", x: 17, z: 20 });
+  fac({ name: "Kids' Play Area", type: "other", x: -22, z: -18 });
+  fac({ name: "Bus Stop · 100 Ft Main Road", type: "bus_stop", x: 22, z: 125 });
 
   /* ------------------------- streetlights ------------------------- */
   let ln = 0;
-  const addLamp = (x: number, z: number, opts?: Partial<Streetlight>) => {
+  const lamp = (x: number, z: number, opts?: Partial<Streetlight>) => {
     streetlights.push({
       id: seededId("sl", ln++),
       x,
       z,
-      height: 8,
+      height: 7,
       brightness: 0.85,
-      radius: 19,
+      radius: 18,
       on: true,
       maintenance: "ok",
       ...opts,
     });
   };
-  for (const h of hRoads) {
-    const spacing = 30;
-    for (let x = -W / 2 + 12; x <= W / 2 - 12; x += spacing) {
-      addLamp(x, h.z - (Math.round(x / spacing) % 2 === 0 ? 5 : -5));
-    }
+  // outer main road
+  for (let x = -120; x <= 120; x += 30) lamp(x, 126);
+  // gate drive
+  for (const z of [110, 96, 80, 62, 46]) lamp(z > WALL ? -5.5 : 5, z);
+  // grid drives — dense near the park ring, sparse out toward the wall
+  const gridStops = [-80, -58, -20, 0, 20, 58, 80];
+  for (const s of gridStops) {
+    // the north-west arms (toward Block F) were never properly lit: one lamp missing, one faulty
+    const nwArm = s < -GRID;
+    if (!(nwArm && s === -58)) lamp(-GRID - 4, s, nwArm ? { maintenance: "faulty" } : undefined);
+    lamp(GRID + 4, s);
+    if (!(nwArm && s === -58)) lamp(s, -GRID - 4, nwArm ? { maintenance: "faulty" } : undefined);
+    lamp(s, GRID + 4);
   }
-  for (const v of vRoads) {
-    const spacing = 32;
-    let k = 0;
-    for (let z = -D / 2 + 14; z <= D / 2 - 14; z += spacing) {
-      addLamp(v.x + (k % 2 === 0 ? 4.5 : -4.5), z);
-      k += 1;
-    }
-  }
-  // park path lighting — dimmer, sparser
-  for (let i = 0; i < 8; i += 2) {
-    addLamp(loop[i].x, loop[i].z, { height: 5, brightness: 0.55, radius: 13 });
-  }
-  // a couple of faulty lamps for realism
-  if (streetlights[5]) streetlights[5].maintenance = "faulty";
-  if (streetlights[17]) streetlights[17].maintenance = "faulty";
+  for (const [x, z] of [[-GRID, -GRID], [GRID, -GRID], [GRID, GRID], [-GRID, GRID]] as const) lamp(x + Math.sign(x) * 4, z + Math.sign(z) * 4);
+  // walking track: lit on the gate (south) and east sides, sparse on the back
+  for (let x = -70; x <= 70; x += 35) lamp(x, TRACK + 4, { height: 5, brightness: 0.7, radius: 15 });
+  for (let z = -70; z <= 70; z += 35) lamp(TRACK + 4, z, { height: 5, brightness: 0.7, radius: 15 });
+  lamp(-TRACK - 4, 50, { height: 5, brightness: 0.7, radius: 15 });
+  lamp(-TRACK - 4, -10, { height: 5, brightness: 0.7, radius: 15 });
+  lamp(-TRACK - 4, -64, { height: 5, brightness: 0.7, radius: 15, maintenance: "faulty" }); // behind Block F
+  lamp(-64, -TRACK - 4, { height: 5, brightness: 0.7, radius: 15, maintenance: "faulty" }); // behind Block F
+  lamp(0, -TRACK - 4, { height: 5, brightness: 0.7, radius: 15 });
+  lamp(64, -TRACK - 4, { height: 5, brightness: 0.7, radius: 15, maintenance: "faulty" }); // service gate corner
+  // park — low bollard-style lamps
+  for (let i = 0; i < 10; i += 3) lamp(loop[i].x, loop[i].z, { height: 4, brightness: 0.55, radius: 12 });
+  lamp(18, -6, { height: 4, brightness: 0.75, radius: 12 }); // mandir forecourt
+  lamp(26, 28, { height: 4.5, brightness: 0.75, radius: 13 }); // clubhouse
+  // outside the service gate: nothing.
 
   /* ------------------------- CCTV ------------------------- */
-  cameras.push({
-    id: seededId("cam", 0),
-    x: -34,
-    z: -84,
-    height: 7,
-    range: 34,
-    fovDeg: 90,
-    orientationDeg: 205,
-    active: true,
-  });
-  cameras.push({
-    id: seededId("cam", 1),
-    x: 118,
-    z: 2,
-    height: 6.5,
-    range: 30,
-    fovDeg: 70,
-    orientationDeg: 250,
-    active: true,
-  });
-  cameras.push({
-    id: seededId("cam", 2),
-    x: 26,
-    z: -95,
-    height: 6,
-    range: 26,
-    fovDeg: 60,
-    orientationDeg: 20,
-    active: true,
-  });
+  // only at the main gate and the clubhouse — the rest of the society is a blind spot
+  cameras.push({ id: seededId("cam", 0), x: -6, z: 101, height: 5, range: 30, fovDeg: 90, orientationDeg: 270, active: true }); // gate → inside
+  cameras.push({ id: seededId("cam", 1), x: 6, z: 106, height: 5, range: 22, fovDeg: 100, orientationDeg: 90, active: true }); // gate → road
+  cameras.push({ id: seededId("cam", 2), x: 26, z: 14, height: 5, range: 26, fovDeg: 100, orientationDeg: 200, active: true }); // clubhouse / park
 
   /* ------------------------- guards ------------------------- */
   guards.push({
     id: seededId("gd", 0),
-    name: "Patrol Alpha",
-    speed: 1.15,
+    name: "Gate Guard Ramesh",
+    speed: 1.1,
     waypoints: [
-      { x: -150, z: -90 },
-      { x: -30, z: -90 },
-      { x: -30, z: -10 },
-      { x: -150, z: -10 },
+      { x: 6, z: 98 },
+      { x: 4, z: 92 },
+      { x: -4, z: 96 },
     ],
     active: true,
   });
   guards.push({
     id: seededId("gd", 1),
-    name: "Patrol Beta",
-    speed: 1.1,
+    name: "Patrol Suresh",
+    speed: 1.15,
     waypoints: [
-      { x: 90, z: -90 },
-      { x: 90, z: 70 },
-      { x: 124, z: 20 },
-      { x: 30, z: -94 },
+      { x: -GRID, z: GRID },
+      { x: -GRID, z: -GRID },
+      { x: GRID, z: -GRID },
+      { x: GRID, z: GRID },
     ],
     active: true,
   });
+  guards.push({
+    id: seededId("gd", 2),
+    name: "Patrol Mohan",
+    speed: 1.1,
+    waypoints: [
+      { x: 0, z: TRACK },
+      { x: TRACK, z: TRACK },
+      { x: TRACK, z: -GRID },
+      { x: GRID, z: -GRID },
+      { x: GRID, z: GRID },
+      { x: 0, z: GRID },
+    ],
+    active: true,
+  });
+
+  /* ------------------------- site layers ------------------------- */
+  const site: SiteLayers = {
+    walls: [
+      {
+        id: "wl_compound",
+        points: [
+          { x: -WALL, z: -WALL },
+          { x: WALL, z: -WALL },
+          { x: WALL, z: WALL },
+          { x: -WALL, z: WALL },
+        ],
+        closed: true,
+        height: 2.4,
+      },
+    ],
+    gates: [
+      { id: "gt_main", name: "the main gate", kind: "main", x: 0, z: WALL },
+      { id: "gt_service", name: "the service gate", kind: "service", x: 52, z: -WALL },
+    ],
+    booths: [{ id: "bt_main", x: 9, z: 98, note: "Main gate security cabin — guard on duty 24×7, visitor register" }],
+    areas: [
+      { id: "ar_park_visitor", kind: "parking", name: "Visitor Parking", x: -19, z: 70, width: 22, depth: 26, rotation: 0 },
+      { id: "ar_park_b", kind: "parking", name: "Block B Parking", x: 64, z: 81, width: 30, depth: 10, rotation: 0 },
+      { id: "ar_park_h", kind: "parking", name: "Block H Parking", x: -64, z: 81, width: 30, depth: 10, rotation: 0 },
+      { id: "ar_park_e", kind: "parking", name: "Block E Parking", x: 0, z: -80, width: 34, depth: 9, rotation: 0 },
+      {
+        id: "ar_dark_f",
+        kind: "dark",
+        name: "Back corner behind Block F",
+        x: -72,
+        z: -72,
+        width: 64,
+        depth: 64,
+        rotation: 0,
+        note: "Unlit corner along the compound wall — lamps faulty, no CCTV, not on any patrol route",
+      },
+      {
+        id: "ar_dark_service",
+        kind: "dark",
+        name: "Service gate corner",
+        x: 70,
+        z: -94,
+        width: 34,
+        depth: 16,
+        rotation: 0,
+        note: "Padlocked service gate — unguarded and dark at night",
+      },
+    ],
+  };
 
   return {
     bounds: { width: W, depth: D },
@@ -352,10 +348,17 @@ export function buildDemoWorld(): World {
     streetlights,
     cameras,
     guards,
+    site,
   };
 }
 
 /* ------------------------------------------------------------------ */
+
+/** True when a saved project is an older bundled demo that should be replaced by the current one. */
+export function isLegacyDemo(p: { projectId?: string; name?: string; source?: { kind?: string } }): boolean {
+  if (p.source?.kind !== "demo") return false;
+  return LEGACY_DEMO_IDS.includes(p.projectId ?? "") || LEGACY_DEMO_NAMES.includes(p.name ?? "");
+}
 
 export function makeDemoProject() {
   const world = buildDemoWorld();
@@ -369,7 +372,7 @@ export function makeDemoProject() {
     modifiedAt: now,
     source: { kind: "demo" as const },
     world,
-    scenario: defaultScenario("typical_night"),
+    scenario: { ...defaultScenario("typical_night"), seed: DEMO_SEED },
     baselineRun: null,
     interventionRun: null,
   };

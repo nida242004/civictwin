@@ -12,7 +12,7 @@ import { clockLabel } from "@/lib/sim/runner";
 import { loadStoredRun } from "@/lib/run-actions";
 import { cn } from "@/lib/utils";
 import { eventTypeLabel, outcomeLabel } from "@/lib/sim/labels";
-import { useNarration } from "@/lib/voice/narrate";
+import { useNarration } from "@/lib/captions/narrate";
 import { Button } from "@/components/ui/button";
 import { formatDist, shortAction } from "@/lib/sim/policy";
 

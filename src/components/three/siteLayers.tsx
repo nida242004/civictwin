@@ -41,53 +41,166 @@ function SatelliteGround({ url, width, depth, night }: { url: string; width: num
   );
 }
 
-function Wall({ wall }: { wall: SiteWall }) {
+/** Half-width of the opening a gate cuts into the compound wall. */
+function gateHalf(g: SiteGate) {
+  return g.kind === "main" ? 4.6 : 2.6;
+}
+
+function Wall({ wall, gates }: { wall: SiteWall; gates: SiteGate[] }) {
   const segs = useMemo(() => {
     const pts = wall.closed ? [...wall.points, wall.points[0]] : wall.points;
-    const out: { x: number; z: number; len: number; ang: number }[] = [];
+    const out: { x: number; z: number; len: number; ang: number; pillar: boolean }[] = [];
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1];
       const b = pts[i];
       const len = Math.hypot(b.x - a.x, b.z - a.z);
       if (len < 0.5) continue;
-      out.push({ x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, len, ang: -Math.atan2(b.z - a.z, b.x - a.x) });
+      const ux = (b.x - a.x) / len;
+      const uz = (b.z - a.z) / len;
+      // cut openings where gates sit on this segment
+      const cuts: [number, number][] = [];
+      for (const g of gates) {
+        const t = (g.x - a.x) * ux + (g.z - a.z) * uz;
+        const off = Math.abs((g.x - a.x) * uz - (g.z - a.z) * ux);
+        if (off < 2 && t > -1 && t < len + 1) cuts.push([t - gateHalf(g), t + gateHalf(g)]);
+      }
+      cuts.sort((p, q) => p[0] - q[0]);
+      let s0 = 0;
+      const pieces: [number, number][] = [];
+      for (const [c0, c1] of cuts) {
+        if (c0 > s0) pieces.push([s0, Math.min(c0, len)]);
+        s0 = Math.max(s0, c1);
+      }
+      if (s0 < len) pieces.push([s0, len]);
+      const ang = -Math.atan2(b.z - a.z, b.x - a.x);
+      for (const [p0, p1] of pieces) {
+        if (p1 - p0 < 0.3) continue;
+        const m = (p0 + p1) / 2;
+        out.push({ x: a.x + ux * m, z: a.z + uz * m, len: p1 - p0, ang, pillar: false });
+      }
+      // brick pillars every ~12 m for a believable compound wall
+      for (let d = 0; d <= len; d += 12) {
+        if (cuts.some(([c0, c1]) => d > c0 - 0.5 && d < c1 + 0.5)) continue;
+        out.push({ x: a.x + ux * d, z: a.z + uz * d, len: 0.7, ang, pillar: true });
+      }
     }
     return out;
-  }, [wall]);
+  }, [wall, gates]);
+  const h = wall.height;
   return (
     <group raycast={() => null}>
-      {segs.map((s, i) => (
-        <mesh key={i} position={[s.x, wall.height / 2, s.z]} rotation={[0, s.ang, 0]} raycast={() => null}>
-          <boxGeometry args={[s.len + 0.3, wall.height, 0.35]} />
-          <meshStandardMaterial color="#b9ab92" roughness={0.9} transparent opacity={0.9} />
-        </mesh>
-      ))}
+      {segs.map((s, i) =>
+        s.pillar ? (
+          <mesh key={i} position={[s.x, (h + 0.35) / 2, s.z]} rotation={[0, s.ang, 0]} raycast={() => null}>
+            <boxGeometry args={[0.7, h + 0.35, 0.6]} />
+            <meshStandardMaterial color="#a7967c" roughness={0.9} />
+          </mesh>
+        ) : (
+          <group key={i} position={[s.x, 0, s.z]} rotation={[0, s.ang, 0]}>
+            <mesh position={[0, h / 2, 0]} raycast={() => null}>
+              <boxGeometry args={[s.len + 0.05, h, 0.35]} />
+              <meshStandardMaterial color="#d8c8a8" roughness={0.92} emissive="#4a4030" emissiveIntensity={0.55} />
+            </mesh>
+            {/* coping + a strand of barbed wire on top */}
+            <mesh position={[0, h + 0.05, 0]} raycast={() => null}>
+              <boxGeometry args={[s.len + 0.1, 0.1, 0.45]} />
+              <meshStandardMaterial color="#8f8470" roughness={0.9} />
+            </mesh>
+            <mesh position={[0, h + 0.4, 0]} raycast={() => null}>
+              <boxGeometry args={[s.len, 0.04, 0.04]} />
+              <meshStandardMaterial color="#5b5f66" metalness={0.6} roughness={0.5} />
+            </mesh>
+          </group>
+        )
+      )}
     </group>
   );
 }
 
 function Gate({ gate }: { gate: SiteGate }) {
   const c = GATE_COLORS[gate.kind];
+  const half = gateHalf(gate);
+  const main = gate.kind === "main";
+  // the gate line runs along x; walls here are axis-aligned — rotate for gates on east/west walls
+  const site = useEditor((s) => s.project?.world.site);
+  const wall = site?.walls.find((w) => w.closed);
+  let rot = 0;
+  if (wall) {
+    const xs = wall.points.map((p) => p.x);
+    if (Math.min(...xs.map((x) => Math.abs(x - gate.x))) < 2) rot = Math.PI / 2;
+  }
+  const pillarH = main ? 4.2 : 3;
   return (
-    <group position={[gate.x, 0, gate.z]} raycast={() => null}>
-      {[-3, 3].map((dx) => (
-        <mesh key={dx} position={[dx, 1.6, 0]} raycast={() => null}>
-          <boxGeometry args={[0.7, 3.2, 0.7]} />
-          <meshStandardMaterial color="#d8d0c0" />
-        </mesh>
+    <group position={[gate.x, 0, gate.z]} rotation={[0, rot, 0]} raycast={() => null}>
+      {[-half - 0.5, half + 0.5].map((dx) => (
+        <group key={dx}>
+          <mesh position={[dx, pillarH / 2, 0]} raycast={() => null}>
+            <boxGeometry args={[1, pillarH, 1]} />
+            <meshStandardMaterial color="#e3d8c4" roughness={0.8} />
+          </mesh>
+          <mesh position={[dx, pillarH + 0.25, 0]} raycast={() => null}>
+            <boxGeometry args={[1.3, 0.5, 1.3]} />
+            <meshStandardMaterial color="#b08d5b" />
+          </mesh>
+          {main && (
+            <mesh position={[dx, pillarH + 0.75, 0]} raycast={() => null}>
+              <sphereGeometry args={[0.32, 12, 8]} />
+              <meshBasicMaterial color="#fff1c4" toneMapped={false} />
+            </mesh>
+          )}
+        </group>
       ))}
-      <mesh position={[0, 3.4, 0]} raycast={() => null}>
-        <boxGeometry args={[6.8, 0.35, 0.35]} />
-        <meshStandardMaterial color={c} emissive={c} emissiveIntensity={0.6} />
-      </mesh>
-      <mesh position={[0, 7, 0]} raycast={() => null}>
-        <octahedronGeometry args={[1.1]} />
-        <meshStandardMaterial color={c} emissive={c} emissiveIntensity={0.9} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]} raycast={() => null}>
-        <ringGeometry args={[4.2, 5, 32]} />
-        <meshBasicMaterial color={c} transparent opacity={0.7} />
-      </mesh>
+      {main ? (
+        <>
+          {/* name arch with a warm-lit signboard */}
+          <mesh position={[0, pillarH + 0.6, 0]} raycast={() => null}>
+            <boxGeometry args={[2 * half + 2, 0.9, 0.5]} />
+            <meshStandardMaterial color="#7a4b2a" />
+          </mesh>
+          <mesh position={[0, pillarH + 0.6, 0.27]} raycast={() => null}>
+            <planeGeometry args={[2 * half, 0.6]} />
+            <meshBasicMaterial color="#ffcf7a" toneMapped={false} />
+          </mesh>
+          <mesh position={[0, pillarH + 0.6, -0.27]} rotation={[0, Math.PI, 0]} raycast={() => null}>
+            <planeGeometry args={[2 * half, 0.6]} />
+            <meshBasicMaterial color="#ffcf7a" toneMapped={false} />
+          </mesh>
+          {/* sliding iron gate, pulled half open */}
+          <mesh position={[-half * 0.75, 0.95, 0.6]} raycast={() => null}>
+            <boxGeometry args={[half * 1.1, 1.7, 0.1]} />
+            <meshStandardMaterial color="#2f3540" metalness={0.5} roughness={0.5} />
+          </mesh>
+          {/* boom barrier */}
+          <mesh position={[half * 0.1, 1.05, -1.2]} raycast={() => null}>
+            <boxGeometry args={[half * 1.7, 0.14, 0.14]} />
+            <meshStandardMaterial color="#e5e7eb" emissive="#ef4444" emissiveIntensity={0.25} />
+          </mesh>
+        </>
+      ) : (
+        <>
+          {/* closed grille gate + padlock */}
+          <mesh position={[0, 1.1, 0]} raycast={() => null}>
+            <boxGeometry args={[2 * half, 2.2, 0.1]} />
+            <meshStandardMaterial color="#3a3f48" metalness={0.5} roughness={0.55} />
+          </mesh>
+          <mesh position={[0.3, 1.1, 0.12]} raycast={() => null}>
+            <boxGeometry args={[0.25, 0.3, 0.12]} />
+            <meshStandardMaterial color="#c9a227" metalness={0.7} roughness={0.3} />
+          </mesh>
+        </>
+      )}
+      {gate.inferred && (
+        <>
+          <mesh position={[0, 7, 0]} raycast={() => null}>
+            <octahedronGeometry args={[1.1]} />
+            <meshStandardMaterial color={c} emissive={c} emissiveIntensity={0.9} />
+          </mesh>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]} raycast={() => null}>
+            <ringGeometry args={[4.2, 5, 32]} />
+            <meshBasicMaterial color={c} transparent opacity={0.7} />
+          </mesh>
+        </>
+      )}
     </group>
   );
 }
@@ -113,7 +226,17 @@ export const DEFAULT_ZOOM = 4.5;
 export function fitZoom(cam: THREE.Camera): number {
   const p = useEditor.getState().project;
   const o = cam as THREE.OrthographicCamera;
-  if (!p?.source.geo || !o.isOrthographicCamera) return DEFAULT_ZOOM;
+  if (!p?.source.geo || !o.isOrthographicCamera) {
+    // walled (non-geo) sites such as the demo society: frame the whole compound
+    const wall = p?.world.site?.walls.find((w) => w.closed && w.points.length >= 3);
+    if (!wall || !o.isOrthographicCamera) return DEFAULT_ZOOM;
+    const xs = wall.points.map((q) => q.x);
+    const zs = wall.points.map((q) => q.z);
+    const ext = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+    const byW = (o.right - o.left) / (ext * 1.35);
+    const byH = (o.top - o.bottom) / (ext * 0.95);
+    return Math.max(1.5, Math.min(DEFAULT_ZOOM, byW, byH));
+  }
   const { width, depth } = p.world.bounds;
   const span = (width + depth) * 0.72; // footprint diagonal as seen from the iso/top views
   const z = Math.min((o.right - o.left) / span, (o.top - o.bottom) / (span * 0.62)) * 0.92;
@@ -125,7 +248,8 @@ function FitGeoCamera() {
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   useEffect(() => {
-    if (!useEditor.getState().project?.source.geo) return;
+    const pr = useEditor.getState().project;
+    if (!pr?.source.geo && !pr?.world.site?.walls.some((w) => w.closed)) return;
     const o = camera as THREE.OrthographicCamera;
     o.zoom = fitZoom(o);
     o.updateProjectionMatrix();
@@ -150,7 +274,7 @@ export function SiteLayers() {
       {site && layers.site !== false && (
         <>
           {site.walls.map((w) => (
-            <Wall key={w.id} wall={w} />
+            <Wall key={w.id} wall={w} gates={site.gates} />
           ))}
           {site.gates.map((g) => (
             <Gate key={g.id} gate={g} />

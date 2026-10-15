@@ -75,6 +75,11 @@ const GUARD_SIGHT_M = 30;
 const EARSHOT_M = 90;
 const RESIDENT_EARSHOT_M = 55;
 const CCTV_DETECT_SCORE = 1.5;
+const CLIMB_IN_SEC = 5;
+const CLIMB_OUT_SEC = 4;
+const WALL_SAMPLE_M = 10;
+/** extra fatigue for a guard on static booth duty (night shift at the gate) */
+const BOOTH_FATIGUE_BONUS = 0.45;
 
 export function effectivePerpCount(s: ScenarioConfig): number {
   if (s.eventsPerHour <= 0) return 0;
@@ -100,8 +105,16 @@ export interface DramaCtx {
   eventRt: Map<string, EventRT>;
 }
 
+/**
+ * A way into / out of the site. Gates are walked through (the padlocked
+ * service gate is climbed); wall points are climbed (outer side → inner side).
+ * (x, z) is always the INSIDE point where the actor joins the walk network.
+ */
 interface Exit extends Pt {
   name: string;
+  kind: "main" | "service" | "pedestrian" | "wall" | "edge";
+  /** outside point (wall climbs and the locked service gate) */
+  outer?: Pt;
 }
 
 interface Target {
@@ -157,6 +170,13 @@ interface PerpRT {
   bold: boolean;
   /** next time a Jev-policy stalking decision is due */
   decideAt: number;
+  /** climbing over the wall / locked gate: from → to between climbStart..climbEnd (0 = not climbing) */
+  climbFrom: Pt | null;
+  climbTo: Pt | null;
+  climbStart: number;
+  climbEnd: number;
+  /** spawn-time actions (route to lurk / target) still pending after the climb-in */
+  pendingStart: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -189,6 +209,9 @@ export class DramaDirector {
   private incCounter = 0;
   private policy: Record<string, Record<string, number>> | null;
   private decisions: PolicyDecision[] = [];
+  /** guards posted at the main gate / a booth (static duty) */
+  private boothGuard: boolean[] = [];
+  private mainGate: Pt | null = null;
 
   constructor(ctx: DramaCtx) {
     this.ctx = ctx;
@@ -205,6 +228,7 @@ export class DramaDirector {
     for (const r of ctx.world.roads) if (r.name) this.roadNames.set(r.id, r.name);
 
     this.buildExits();
+    this.detectBoothGuards();
     this.buildFootfall();
     this.scheduleFatigue();
     this.spawnPerps();
@@ -212,13 +236,112 @@ export class DramaDirector {
 
   /* ------------------------------ setup ------------------------------ */
 
+  private siteCentre(): Pt {
+    const w = this.ctx.world.site?.walls?.find((x) => x.closed && x.points.length >= 3);
+    if (!w) return { x: 0, z: 0 };
+    let x = 0;
+    let z = 0;
+    for (const p of w.points) {
+      x += p.x;
+      z += p.z;
+    }
+    return { x: x / w.points.length, z: z / w.points.length };
+  }
+
+  /** Unit vector from a boundary point toward the inside of the site. */
+  private inwardNormal(x: number, z: number): Pt {
+    const c = this.siteCentre();
+    // snap to the dominant axis (walls are mostly axis-aligned near gates)
+    const dx = c.x - x;
+    const dz = c.z - z;
+    if (Math.abs(dx) > Math.abs(dz)) return { x: Math.sign(dx) || 1, z: 0 };
+    return { x: 0, z: Math.sign(dz) || 1 };
+  }
+
+  private detectBoothGuards() {
+    const booths = this.ctx.world.site?.booths ?? [];
+    const posts: Pt[] = [...booths.map((b) => ({ x: b.x, z: b.z })), ...(this.mainGate ? [this.mainGate] : [])];
+    this.boothGuard = this.ctx.guards.map((g) => {
+      const wps = g.def.waypoints;
+      if (!wps.length || !posts.length) return false;
+      return wps.every((w) => posts.some((p) => dist(p.x, p.z, w.x, w.z) < 18));
+    });
+  }
+
+  /** Name of the nearest named building (for "near Block F"). */
+  private nearBuilding(x: number, z: number): string | null {
+    let best: string | null = null;
+    let bd = 70;
+    for (const b of this.ctx.world.buildings) {
+      if (!b.name) continue;
+      const d = dist(b.x, b.z, x, z);
+      if (d < bd) {
+        bd = d;
+        best = b.name;
+      }
+    }
+    return best;
+  }
+
   private buildExits() {
     const { world, graph } = this.ctx;
     const gates = world.site?.gates ?? [];
+    const walls = world.site?.walls ?? [];
     const out: Exit[] = [];
     for (const g of gates) {
       if (nearestRoutableNode(graph, g.x, g.z) === null) continue;
-      out.push({ x: g.x, z: g.z, name: g.name || `${g.kind} gate` });
+      const near = this.nearBuilding(g.x, g.z);
+      const base = g.name || `the ${g.kind} gate`;
+      if (g.kind === "service") {
+        // padlocked at night: climbed over, outside → inside
+        const n = this.inwardNormal(g.x, g.z);
+        out.push({
+          x: g.x + n.x * 3,
+          z: g.z + n.z * 3,
+          outer: { x: g.x - n.x * 2, z: g.z - n.z * 2 },
+          kind: "service",
+          name: near ? `${base} behind ${near}` : base,
+        });
+      } else {
+        out.push({ x: g.x, z: g.z, kind: g.kind, name: base });
+        if (g.kind === "main" && !this.mainGate) this.mainGate = { x: g.x, z: g.z };
+      }
+    }
+    // compound-wall climb points (every WALL_SAMPLE_M, away from gates)
+    for (const w of walls) {
+      if (w.points.length < 2) continue;
+      const pts = w.closed ? [...w.points, w.points[0]] : w.points;
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const len = dist(a.x, a.z, b.x, b.z);
+        if (len < 4) continue;
+        let nx = -(b.z - a.z) / len;
+        let nz = (b.x - a.x) / len;
+        const c = this.siteCentre();
+        if (nx * (c.x - a.x) + nz * (c.z - a.z) < 0) {
+          nx = -nx;
+          nz = -nz;
+        }
+        const steps = Math.max(1, Math.floor(len / WALL_SAMPLE_M));
+        for (let s = 0; s < steps; s++) {
+          const t = (s + 0.5) / steps;
+          const x = a.x + (b.x - a.x) * t;
+          const z = a.z + (b.z - a.z) * t;
+          if (gates.some((g) => dist(g.x, g.z, x, z) < 14)) continue;
+          const inner = { x: x + nx * 3, z: z + nz * 3 };
+          const nn = nearestRoutableNode(graph, inner.x, inner.z);
+          if (nn === null || dist(graph.nodes[nn].x, graph.nodes[nn].z, inner.x, inner.z) > 30) continue;
+          const near = this.nearBuilding(x, z);
+          out.push({
+            x: inner.x,
+            z: inner.z,
+            outer: { x: x - nx * 1.6, z: z - nz * 1.6 },
+            kind: "wall",
+            name: near ? `the back wall near ${near}` : "the compound wall",
+          });
+        }
+      }
     }
     if (!out.length) {
       const hw = world.bounds.width / 2;
@@ -228,7 +351,7 @@ export class DramaDirector {
         if (Math.abs(n.x) < hw - 15 && Math.abs(n.z) < hd - 15) continue;
         if (nearestRoutableNode(graph, n.x, n.z) !== n.id) continue;
         if (out.some((e) => dist(e.x, e.z, n.x, n.z) < 25)) continue;
-        out.push({ x: n.x, z: n.z, name: `the ${this.placeName(n.x, n.z)} exit` });
+        out.push({ x: n.x, z: n.z, kind: "edge", name: `the ${this.placeName(n.x, n.z)} exit` });
       }
     }
     if (!out.length) {
@@ -236,7 +359,7 @@ export class DramaDirector {
         .filter((n) => nearestRoutableNode(graph, n.x, n.z) === n.id)
         .sort((a, b) => Math.hypot(b.x, b.z) - Math.hypot(a.x, a.z) || a.id - b.id)
         .slice(0, 4);
-      for (const n of cand) out.push({ x: n.x, z: n.z, name: `the ${this.placeName(n.x, n.z)} exit` });
+      for (const n of cand) out.push({ x: n.x, z: n.z, kind: "edge", name: `the ${this.placeName(n.x, n.z)} exit` });
     }
     this.exits = out;
   }
@@ -255,8 +378,9 @@ export class DramaDirector {
 
   private scheduleFatigue() {
     const { guards, duration } = this.ctx;
-    const f = this.fatigue;
     for (let i = 0; i < guards.length; i++) {
+      // static night duty at the gate cabin is the sleepiest post
+      const f = this.fatigue > 0 && this.boothGuard[i] ? Math.min(1, this.fatigue + BOOTH_FATIGUE_BONUS) : this.fatigue;
       const r1 = this.rng.next();
       const r2 = this.rng.next();
       const r3 = this.rng.next();
@@ -285,30 +409,50 @@ export class DramaDirector {
     const { agents, duration } = this.ctx;
 
     // the "opener": stalks the earliest walker so something happens in the first minutes
+    // (on walled sites: the early walker whose route passes the darkest, least-watched stretch)
     let openerVictim = -1;
+    let openerScore = -Infinity;
+    const walled = this.hasWalls();
     for (let i = 0; i < agents.length; i++) {
       const a = agents[i];
       if (!a.reachable || a.routeLength < 90 || a.spawnAt > 150) continue;
-      if (openerVictim < 0 || a.spawnAt < agents[openerVictim].spawnAt) openerVictim = i;
+      let sc = -a.spawnAt;
+      if (walled) {
+        const pt = this.ambushPoint(i);
+        sc =
+          200 * (1.5 * (1 - this.lightF(pt.x, pt.z)) + (this.camCovering(pt.x, pt.z) >= 0 ? 0 : 0.8) + (this.inDarkArea(pt.x, pt.z) ? 1 : 0)) -
+          a.spawnAt;
+        // close to the compound wall = a climb-in ambush
+        const c = this.siteCentre();
+        sc += 0.6 * Math.max(Math.abs(pt.x - c.x), Math.abs(pt.z - c.z));
+      }
+      if (sc > openerScore) {
+        openerScore = sc;
+        openerVictim = i;
+      }
     }
 
     const others = openerVictim >= 0 ? n - 1 : n;
     let k = 0;
     for (let i = 0; i < n; i++) {
       const opener = i === 0 && openerVictim >= 0;
-      const kind = this.pickKind(opener);
+      let kind = this.pickKind(opener);
+      // a night with 3+ intruders always includes one property crime (burglary / vandalism)
+      if (n >= 3 && i === n - 1 && this.perps.every((q) => PERSON_KINDS.includes(q.kind)) && PERSON_KINDS.includes(kind)) {
+        const mix = this.ctx.scenario.incidentMix ?? DEFAULT_INCIDENT_MIX;
+        const prop = PERP_KINDS.filter((k) => !PERSON_KINDS.includes(k) && (mix[k] ?? 0) > 0);
+        if (prop.length) kind = prop[this.rng.weighted(prop.map((k) => mix[k] ?? 0))];
+      }
       let spawnAt: number;
-      let spawn: Exit;
+      // entry point is chosen at spawn time (depends on who is awake / where)
+      const spawn: Exit = this.exits[0];
       if (opener) {
         const v = agents[openerVictim];
-        spawnAt = Math.max(3, v.spawnAt - 20);
-        const mid = pointAlong(v.path, v.routeLength * 0.45);
-        spawn = this.nearestExit(mid.x, mid.z);
+        spawnAt = Math.max(3, v.spawnAt - 20 - (this.hasWalls() ? CLIMB_IN_SEC + 10 : 0));
       } else {
         spawnAt =
           Math.round(duration * (0.06 + 0.82 * (others > 0 ? k / others : 0))) +
           this.rng.int(0, Math.round(duration * 0.06));
-        spawn = this.exits[this.rng.int(0, this.exits.length - 1)];
         k += 1;
       }
       this.perps.push({
@@ -337,7 +481,135 @@ export class DramaDirector {
         cooldownUntil: 0,
         bold: opener,
         decideAt: 0,
+        climbFrom: null,
+        climbTo: null,
+        climbStart: 0,
+        climbEnd: 0,
+        pendingStart: false,
       });
+    }
+  }
+
+  /* --------------------------- entry points --------------------------- */
+
+  private hasWalls() {
+    return this.exits.some((e) => e.kind === "wall");
+  }
+
+  /** Opener ambush: the darkest, least-watched point on the victim's route (no randomness). */
+  private ambushPoint(ai: number): Pt {
+    const v = this.ctx.agents[ai];
+    let best = pointAlong(v.path, v.routeLength * 0.45);
+    let bs = -Infinity;
+    for (let k = 0; k <= 13; k++) {
+      const pt = pointAlong(v.path, v.routeLength * (0.1 + 0.05 * k));
+      const sc =
+        1.5 * (1 - this.lightF(pt.x, pt.z)) + (this.camCovering(pt.x, pt.z) >= 0 ? 0 : 0.8) + (this.inDarkArea(pt.x, pt.z) ? 0.6 : 0) - 0.02 * k;
+      if (sc > bs) {
+        bs = sc;
+        best = pt;
+      }
+    }
+    return best;
+  }
+
+  /** Inside a site area marked "dark" (known unlit corner). */
+  private inDarkArea(x: number, z: number): boolean {
+    for (const a of this.ctx.world.site?.areas ?? []) {
+      if (a.kind !== "dark") continue;
+      const c = Math.cos(-a.rotation);
+      const s = Math.sin(-a.rotation);
+      const lx = (x - a.x) * c - (z - a.z) * s;
+      const lz = (x - a.x) * s + (z - a.z) * c;
+      if (Math.abs(lx) <= a.width / 2 && Math.abs(lz) <= a.depth / 2) return true;
+    }
+    return false;
+  }
+
+  private gateGuardCond(): number | null {
+    if (!this.mainGate) return null;
+    let cond: number | null = null;
+    let bd = 25;
+    for (let gi = 0; gi < this.ctx.guards.length; gi++) {
+      const d = dist(this.gp[gi]?.x ?? Infinity, this.gp[gi]?.z ?? Infinity, this.mainGate.x, this.mainGate.z);
+      if (d < bd) {
+        bd = d;
+        cond = this.ctx.guards[gi].cond;
+      }
+    }
+    return cond;
+  }
+
+  /** How attractive an entry/escape point is: dark, off-camera, far from awake guards. */
+  private entryScore(e: Exit): number {
+    if (e.kind === "main") {
+      const c = this.gateGuardCond();
+      const cam = this.camCovering(e.x, e.z) >= 0 ? 0.5 : 0;
+      if (c === null) return 1.6 - cam;
+      if (c === GUARD_CONDITION.ASLEEP) return 2.9 - cam;
+      if (c === GUARD_CONDITION.DROWSY) return 1.5 - cam;
+      return -1.5;
+    }
+    const lf = this.lightF(e.x, e.z);
+    const cov = this.camCovering(e.x, e.z) >= 0 || (e.outer ? this.camCovering(e.outer.x, e.outer.z) >= 0 : false);
+    const g = this.nearestGuardState(e.x, e.z);
+    const far = Math.min(1, g.d / 60);
+    return 2 * (1 - lf) + (cov ? 0 : 1.2) + far + (e.kind === "service" ? 0.4 : 0) + (this.inDarkArea(e.x, e.z) ? 0.5 : 0);
+  }
+
+  /** Seeded, weighted choice of an entry point (optionally near a goal point). */
+  private chooseEntry(near: Pt | null, property = false): Exit {
+    const w = this.exits.map((e) => {
+      let s = this.entryScore(e);
+      // burglars carry tools: a padlocked service gate is the easy way in (and out with loot)
+      if (property && e.kind === "service") s += 1.2;
+      if (near) s -= dist(e.x, e.z, near.x, near.z) / (property ? 70 : 35);
+      return Math.exp(2.5 * s);
+    });
+    return this.exits[this.rng.weighted(w)];
+  }
+
+  private startClimb(p: PerpRT, from: Pt, to: Pt, t: number, sec: number) {
+    p.climbFrom = { x: from.x, z: from.z };
+    p.climbTo = { x: to.x, z: to.z };
+    p.climbStart = t;
+    p.climbEnd = t + sec;
+    p.x = from.x;
+    p.z = from.z;
+    p.moving = false;
+  }
+
+  /** Advance an in-progress climb; returns true while still climbing. */
+  private stepClimb(p: PerpRT, t: number): boolean {
+    if (!p.climbEnd || !p.climbFrom || !p.climbTo) return false;
+    const k = clamp((t - p.climbStart) / Math.max(1, p.climbEnd - p.climbStart), 0, 1);
+    p.x = p.climbFrom.x + (p.climbTo.x - p.climbFrom.x) * k;
+    p.z = p.climbFrom.z + (p.climbTo.z - p.climbFrom.z) * k;
+    if (t >= p.climbEnd) {
+      p.climbEnd = 0;
+      p.climbFrom = null;
+      p.climbTo = null;
+      return false;
+    }
+    return true;
+  }
+
+  private spawnLine(e: Exit): string {
+    switch (e.kind) {
+      case "wall":
+        return `Someone just climbed ${e.name}`;
+      case "service":
+        return `Someone is climbing over the padlocked service gate${e.name.includes("behind") ? " " + e.name.slice(e.name.indexOf("behind")) : ""}`;
+      case "main": {
+        const c = this.gateGuardCond();
+        return c === GUARD_CONDITION.ASLEEP
+          ? "A stranger strolls in through the main gate — the guard is fast asleep"
+          : c === GUARD_CONDITION.DROWSY
+            ? "A stranger slips past the main gate while the guard nods off"
+            : "A 'visitor' walks in through the main gate — nobody checks the register";
+      }
+      default:
+        return `A hooded figure slips in through ${e.name}`;
     }
   }
 
@@ -527,7 +799,9 @@ export class DramaDirector {
           this.guardRef(gi),
           p.x,
           p.z,
-          `${this.gname(gi)} dozed off near ${this.placeName(p.x, p.z)}`,
+          this.boothGuard[gi]
+            ? `${this.gname(gi)} dozed off in the gate cabin — chair tipped back, radio on mute`
+            : `${this.gname(gi)} dozed off near ${this.placeName(p.x, p.z)}`,
           2
         );
       }
@@ -566,8 +840,11 @@ export class DramaDirector {
       world.buildings.forEach((b, i) => {
         if (b.category !== "residential" && b.category !== "mixed" && b.category !== "commercial") return;
         const e = b.entrance ?? { x: b.x, z: b.z + b.depth / 2 };
+        // close to an unguarded service gate = easy in, easy out with the loot
+        let svc = 0;
+        for (const x of this.exits) if (x.kind === "service") svc = Math.max(svc, 1 - Math.min(1, dist(x.x, x.z, e.x, e.z) / 110));
         const sc =
-          1.5 * (1 - this.lightF(e.x, e.z)) + (this.camCovering(e.x, e.z) >= 0 ? 0 : 1) + this.rng.next() * 0.6;
+          1.5 * (1 - this.lightF(e.x, e.z)) + (this.camCovering(e.x, e.z) >= 0 ? 0 : 1) + 1.2 * svc + this.rng.next() * 0.6;
         if (sc > bs) {
           bs = sc;
           best = { type: "building", idx: i, id: b.id, x: e.x, z: e.z, name: b.name || "a flat" };
@@ -715,21 +992,38 @@ export class DramaDirector {
         if (t < p.spawnAt) return;
         p.state = PERP_STATE.LURKING;
         p.lurkSince = t;
-        const place = p.spawn.name.startsWith("the ") ? p.spawn.name : p.spawn.name;
-        this.beat(t, "perp_spawn", this.perpRef(i), p.x, p.z, `A hooded figure slips in through ${place}`, 1);
-        if (p.openerVictim >= 0) {
-          const v = agents[p.openerVictim];
-          const pt = pointAlong(v.path, v.routeLength * 0.45);
-          this.setPath(p, pt.x, pt.z);
-        } else if (person) {
-          this.chooseLurk(p);
-        } else {
+        // pick the way in: near the ambush (opener) / the target (burglar, vandal)
+        let goal: Pt | null = null;
+        if (p.openerVictim >= 0) goal = this.ambushPoint(p.openerVictim);
+        else if (!person) {
           p.target = this.chooseTarget(p);
-          if (p.target) this.setPath(p, p.target.x, p.target.z);
+          if (p.target) goal = { x: p.target.x, z: p.target.z };
         }
-        return;
+        const entry = this.chooseEntry(goal, p.kind === "burglar");
+        p.spawn = entry;
+        p.x = entry.x;
+        p.z = entry.z;
+        if (entry.outer) this.startClimb(p, entry.outer, entry, t, CLIMB_IN_SEC);
+        this.beat(t, "perp_spawn", this.perpRef(i), p.x, p.z, this.spawnLine(entry), entry.kind === "main" ? 2 : 1);
+        p.pendingStart = true;
+        if (p.climbEnd) return;
       }
+      // falls through once inside
       case PERP_STATE.LURKING: {
+        if (this.stepClimb(p, t)) return;
+        if (p.pendingStart) {
+          p.pendingStart = false;
+          p.lurkSince = t;
+          if (p.openerVictim >= 0) {
+            const pt = this.ambushPoint(p.openerVictim);
+            this.setPath(p, pt.x, pt.z);
+          } else if (person) {
+            this.chooseLurk(p);
+          } else if (p.target) {
+            this.setPath(p, p.target.x, p.target.z);
+          }
+          return;
+        }
         if (p.moving) {
           if (this.move(p, p.openerVictim >= 0 ? STALK_SPEED : WALK_SPEED)) p.lurkSince = t;
         }
@@ -827,8 +1121,16 @@ export class DramaDirector {
         return;
       }
       case PERP_STATE.FLEEING: {
-        // sprint away, then slow to a casual walk to blend in
-        if (this.move(p, t - p.fleeStart < 15 ? FLEE_SPEED : BLEND_SPEED)) {
+        // climbing back out over the wall / locked gate
+        if (p.climbEnd) {
+          if (this.stepClimb(p, t)) return;
+        } else if (this.move(p, t - p.fleeStart < 15 ? FLEE_SPEED : BLEND_SPEED)) {
+          if (p.exit?.outer) {
+            this.startClimb(p, { x: p.x, z: p.z }, p.exit.outer, t, CLIMB_OUT_SEC);
+            return;
+          }
+        } else return;
+        {
           p.state = PERP_STATE.ESCAPED;
           if (p.inc) p.inc.rec.perpOutcome = "escaped";
           this.beat(
@@ -837,9 +1139,13 @@ export class DramaDirector {
             this.perpRef(i),
             p.x,
             p.z,
-            p.inc
-              ? `The ${PERP_KIND_LABEL[p.kind]} got away through ${p.exit?.name ?? "the dark"}`
-              : `The ${PERP_KIND_LABEL[p.kind]} left through ${p.exit?.name ?? "the dark"}`,
+            p.exit?.kind === "wall"
+              ? p.inc
+                ? `The ${PERP_KIND_LABEL[p.kind]} vaulted ${p.exit.name} and got away`
+                : `The ${PERP_KIND_LABEL[p.kind]} climbed back over ${p.exit.name}`
+              : p.inc
+                ? `The ${PERP_KIND_LABEL[p.kind]} got away through ${p.exit?.name ?? "the dark"}`
+                : `The ${PERP_KIND_LABEL[p.kind]} left through ${p.exit?.name ?? "the dark"}`,
             p.inc ? 3 : 1,
             p.inc?.rec.eventId ?? null
           );
@@ -857,7 +1163,8 @@ export class DramaDirector {
       const v = p.openerVictim;
       const a = agents[v];
       if (a.state === A_WALKING && !a.dramaLock && this.agentDrama[v] === VICTIM_STATE.NORMAL) {
-        if (dist(this.ap[v].x, this.ap[v].z, p.x, p.z) < 80) return v;
+        // on walled sites the opener waits in the dark until the victim is close
+        if (dist(this.ap[v].x, this.ap[v].z, p.x, p.z) < (this.hasWalls() ? 22 : 80)) return v;
       }
       return -1;
     }
@@ -983,6 +1290,11 @@ export class DramaDirector {
         inc.residentName = world.buildings[nearB].name || "a nearby flat";
       }
     }
+    // the opener's victim (or a neighbour) always phones the gate cabin, so a response gets going
+    if (p.bold && !screams && inc.residentAt === 0) {
+      inc.residentAt = t + 14;
+      inc.residentName = this.nearBuilding(x, z) ?? "a nearby flat";
+    }
     p.inc = inc;
     p.state = PERP_STATE.ATTACKING;
     p.attackEnd = t + ATTACK_SEC[p.kind];
@@ -1027,6 +1339,8 @@ export class DramaDirector {
     let bs = Infinity;
     for (const e of this.exits) {
       let sc = dist(e.x, e.z, p.x, p.z);
+      // prefer dark, unwatched ways out; the main gate only when its guard is not alert
+      if (e.kind !== "edge") sc -= 18 * this.entryScore(e);
       for (let gi = 0; gi < guards.length; gi++) {
         if (!this.awake(gi)) continue;
         if (dist(this.gp[gi].x, this.gp[gi].z, e.x, e.z) < 50) sc += 200;

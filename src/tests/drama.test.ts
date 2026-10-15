@@ -3,7 +3,9 @@ import { runSimulation, RADIO_WAKE_DELAY_SEC } from "@/lib/sim/engine";
 import { computeMetrics, compareRuns } from "@/lib/sim/metrics";
 import { scenarioTemplates } from "@/lib/sim/scenarios";
 import { PERP_STATE, PERP_KINDS, GUARD_CONDITION } from "@/lib/sim/incidents";
-import { buildDemoWorld } from "@/lib/world/demo";
+import { buildDemoWorld, makeDemoProject } from "@/lib/world/demo";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { defaultScenario, type ScenarioConfig } from "@/lib/world/types";
 
 function hr(patch: Partial<ScenarioConfig> = {}): ScenarioConfig {
@@ -143,6 +145,29 @@ describe("incident drama (synthetic perpetrators)", () => {
     expect(r.frames[0].perpPos).toBeUndefined();
     const m = computeMetrics(world, sc, r, { label: "baseline" });
     expect(m.dramaIncidents).toBeUndefined();
+  });
+
+  it("default demo night (prebaked Jev policy) tells the walled-society story", () => {
+    const policy = JSON.parse(readFileSync(join(process.cwd(), "public/jev/policy-typical_night.json"), "utf8"));
+    const sc = { ...makeDemoProject().scenario, jevPolicy: policy };
+    const r = runSimulation(buildDemoWorld(), sc);
+    const spawn = r.beats.find((b) => b.kind === "perp_spawn")!;
+    expect(spawn.line).toMatch(/climbed the back wall near Block F/);
+    const first = r.incidents[0];
+    expect(first.tStart).toBeLessThanOrEqual(120);
+    expect(first.blindSpot).toBe(true);
+    expect(first.perpOutcome).toBe("escaped");
+    expect(r.beats.some((b) => b.kind === "perp_spawn" && /service gate/.test(b.line))).toBe(true);
+    expect(r.incidents.some((i) => i.kind === "burglar")).toBe(true);
+    expect(r.beats.some((b) => b.kind === "guard_asleep" && /gate cabin/.test(b.line))).toBe(true);
+    // fixing the dark corner (1 camera + 2 lights) makes the same night better
+    const w2 = buildDemoWorld();
+    w2.cameras.push({ id: "cam_fix", x: -39, z: -39, height: 6, range: 45, fovDeg: 110, orientationDeg: 225, active: true });
+    w2.streetlights.push({ id: "sl_fix1", x: -62, z: -39, height: 7, brightness: 0.9, radius: 20, on: true, maintenance: "ok" });
+    w2.streetlights.push({ id: "sl_fix2", x: -39, z: -62, height: 7, brightness: 0.9, radius: 20, on: true, maintenance: "ok" });
+    const r2 = runSimulation(w2, sc);
+    const caught = (x: typeof r) => x.incidents.filter((i) => i.perpOutcome === "caught").length;
+    expect(caught(r2)).toBeGreaterThan(caught(r));
   });
 
   it("ships a High-Risk Night template", () => {

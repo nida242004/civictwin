@@ -323,6 +323,41 @@ export async function ablate(baseline: StoredRun, intervention: StoredRun, opts?
   return result;
 }
 
+/** Number of single-change re-runs the ablation will do (for progress UIs / workers). */
+export function ablationCount(baseline: StoredRun, intervention: StoredRun): number {
+  return Math.min(MAX_CHANGES, detectChanges(baseline, intervention).length);
+}
+
+/** One single-change re-run (index into the capped change list). Pure; safe in a worker. */
+export function ablateOne(baseline: StoredRun, intervention: StoredRun, index: number): CostEffectRow | null {
+  const ch = detectChanges(baseline, intervention).slice(0, MAX_CHANGES)[index];
+  if (!ch) return null;
+  const w = deepClone(baseline.world);
+  const s = deepClone(baseline.scenario);
+  ch.apply(w, s);
+  const sim = runSimulation(w, s);
+  const metrics = computeMetrics(w, s, sim, { label: "intervention", baseWorld: baseline.world });
+  const eff = effectOf(baseline, { events: sim.events, metrics });
+  return { id: ch.id, label: ch.label, costInr: ch.costInr, ...eff, riskPerLakh: perLakh(eff.riskReduced, ch.costInr) };
+}
+
+/** Combine streamed single-change rows into the final (cached) ablation result. */
+export function assembleAblation(baseline: StoredRun, intervention: StoredRun, rowsIn: CostEffectRow[]): AblationResult {
+  const all = detectChanges(baseline, intervention);
+  const rows = rowsIn.slice().sort((a, b) => score(b) - score(a));
+  const totalCost = all.reduce((s, c) => s + c.costInr, 0);
+  const combEff = effectOf(baseline, intervention);
+  const result: AblationResult = {
+    interventionId: intervention.id,
+    baselineRisk: riskIndex(baseline.events),
+    rows,
+    combined: { id: "all", label: "All changes together", costInr: totalCost, ...combEff, riskPerLakh: perLakh(combEff.riskReduced, totalCost) },
+    truncated: all.length > MAX_CHANGES,
+  };
+  cache.set(intervention.id, result);
+  return result;
+}
+
 /** Synchronous variant (PDF export, tests). */
 export function ablateSync(baseline: StoredRun, intervention: StoredRun): AblationResult {
   return cache.get(intervention.id) ?? computeInline(baseline, intervention);
