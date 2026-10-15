@@ -421,6 +421,9 @@ export function RoadsLayer({
                 emissiveIntensity={isSelected ? 0.4 : emissiveIntensity}
                 roughness={0.7}
                 side={THREE.DoubleSide}
+                polygonOffset
+                polygonOffsetFactor={-1}
+                polygonOffsetUnits={-2}
                 vertexColors={false}
               />
             </mesh>

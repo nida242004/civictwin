@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchOsmFeatures, MAX_IMPORT_SPAN_M } from "@/lib/geo/osm";
+import { fetchOsmFeatures, validateBbox } from "@/lib/geo/osm";
 import { convertOsmToWorld } from "@/lib/geo/convert";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 /**
  * POST /api/geo/import — fetch OSM features for a bounding box and convert
@@ -20,21 +21,10 @@ export async function POST(req: NextRequest) {
   const n = Number(body.north);
   const w = Number(body.west);
   const e = Number(body.east);
-  if (![s, n, w, e].every((v) => Number.isFinite(v))) {
-    return NextResponse.json({ ok: false, error: "Missing or invalid bounding box." }, { status: 400 });
-  }
-  if (!(n > s && e > w)) {
-    return NextResponse.json({ ok: false, error: "Bounding box is empty or inverted." }, { status: 400 });
-  }
-
+  const bad = validateBbox(s, n, w, e);
+  if (bad) return NextResponse.json({ ok: false, error: bad }, { status: 400 });
   const spanLat = (n - s) * 111320;
   const spanLon = (e - w) * 111320 * Math.cos(((s + n) / 2) * (Math.PI / 180));
-  if (spanLat > MAX_IMPORT_SPAN_M || spanLon > MAX_IMPORT_SPAN_M) {
-    return NextResponse.json(
-      { ok: false, error: `Selected area is too large (max ~${Math.round(MAX_IMPORT_SPAN_M / 1000)} km per side). Pick a smaller neighborhood.` },
-      { status: 400 }
-    );
-  }
 
   try {
     const bundle = await fetchOsmFeatures(s, n, w, e);
@@ -63,15 +53,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    const timeout = msg.toLowerCase().includes("timeout") || msg.toLowerCase().includes("abort");
-    return NextResponse.json(
-      {
-        ok: false,
-        error: timeout
-          ? "The map data service timed out. Public OSM endpoints can be slow or rate-limited — try again, or continue with the demo neighborhood."
-          : `Map data import failed: ${msg}`,
-      },
-      { status: 502 }
-    );
+    console.error("[geo/import] failed:", msg);
+    return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }
 }

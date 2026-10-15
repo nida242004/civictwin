@@ -34,9 +34,10 @@ function SatelliteGround({ url, width, depth, night }: { url: string; width: num
   }, [url]);
   if (!tex) return null;
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} raycast={() => null}>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.025, 0]} renderOrder={-1} raycast={() => null}>
       <planeGeometry args={[width, depth]} />
-      <meshBasicMaterial map={tex} color={night ? "#6f7a8c" : "#ffffff"} toneMapped={false} polygonOffset polygonOffsetFactor={-2} />
+      {/* pushed BACK (positive offset) so roads/paths/areas always win the depth test at oblique angles */}
+      <meshBasicMaterial map={tex} color={night ? "#6f7a8c" : "#ffffff"} toneMapped={false} polygonOffset polygonOffsetFactor={2} polygonOffsetUnits={4} />
     </mesh>
   );
 }
