@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { eventTypeLabel, outcomeLabel } from "@/lib/sim/labels";
 import { useNarration } from "@/lib/voice/narrate";
 import { Button } from "@/components/ui/button";
+import { formatDist, shortAction } from "@/lib/sim/policy";
 
 const SPEEDS = [1, 2, 4, 8];
 
@@ -34,6 +35,10 @@ export default function TimelineBar() {
   const setAssistantOpen = useEditor((s) => s.setAssistantOpen);
   const followIncident = useDrama((s) => s.followIncident);
   const setFollowIncident = useDrama((s) => s.setFollowIncident);
+  const showThinking = useDrama((s) => s.showThinking);
+  const setShowThinking = useDrama((s) => s.setShowThinking);
+  const policyInfo = useDrama((s) => s.policyInfo);
+  const [logTab, setLogTab] = useState<"events" | "decisions">("events");
   const debriefs = useNarration((s) => s.debriefs);
   const hasBaseline = !!project?.baselineRun;
   const hasIntervention = !!project?.interventionRun;
@@ -65,6 +70,8 @@ export default function TimelineBar() {
 
   const duration = activeRun?.durationSec ?? project.scenario.durationSec;
   const events = activeRun?.result.events ?? [];
+  const decisions = activeRun?.result.decisions ?? [];
+  const visibleDecisions = decisions.filter((d) => d.tSec <= displayT);
   const visibleEvents = events.filter((e) => e.tSec <= displayT);
   const recent = [...visibleEvents].slice(-3);
   const currentEvent = visibleEvents.filter((e) => displayT - e.tSec < 20).at(-1);
@@ -136,6 +143,20 @@ export default function TimelineBar() {
           title="Cinematic camera: fly to incidents as they happen"
         >
           Follow incident
+        </button>
+        <button
+          onClick={() => setShowThinking(!showThinking)}
+          className={cn(
+            "rounded-md border px-2 py-1 text-[11px] font-medium",
+            showThinking ? "border-[#7c3aed] bg-[#7c3aed] text-white" : "border-[#dcd6c8] bg-white text-[#5c6470] hover:bg-[#f1ede4]"
+          )}
+          title={
+            decisions.length
+              ? `Show TypeSafe Jev decisions as thought bubbles (${decisions.length} decisions this run${policyInfo ? ` · policy from ${policyInfo.from}, ${policyInfo.latencyMs} ms` : ""})`
+              : "Show TypeSafe Jev decisions as thought bubbles (this run used heuristic behaviour)"
+          }
+        >
+          Show AI thinking
         </button>
 
         {/* clock */}
@@ -251,12 +272,57 @@ export default function TimelineBar() {
       {/* event log */}
       {logOpen && (
         <div ref={logRef} className="max-h-40 overflow-y-auto border-t border-[#efeadf] bg-[#fcfbf8] px-3 py-2">
-          {events.length === 0 && (
+          <div className="mb-1.5 flex gap-1 text-[10.5px]">
+            {(["events", "decisions"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setLogTab(k)}
+                className={cn(
+                  "rounded px-2 py-0.5 font-medium",
+                  logTab === k ? "bg-[#1d2430] text-white" : "bg-white text-[#5c6470] hover:bg-[#f1ede4]"
+                )}
+              >
+                {k === "events" ? `Events (${events.length})` : `Decisions (${decisions.length})`}
+              </button>
+            ))}
+            {logTab === "decisions" && (
+              <span className="ml-2 self-center text-[10px] text-[#8a8272]">
+                TypeSafe Jev = fast judgment (action odds) · the seeded simulation samples from them
+              </span>
+            )}
+          </div>
+          {logTab === "decisions" && (
+            <div className="space-y-1">
+              {decisions.length === 0 && (
+                <div className="py-3 text-center text-[11px] text-[#8a8272]">
+                  This run used the built-in heuristics (no Jev policy table).
+                </div>
+              )}
+              {visibleDecisions
+                .slice()
+                .reverse()
+                .slice(0, 200)
+                .map((d, i) => (
+                  <div key={`${d.tSec}-${i}`} className="flex items-start gap-2 rounded border border-[#ece4fb] bg-white px-2 py-1 text-[11px]">
+                    <span className="w-14 shrink-0 font-mono text-[#8a8272]">{clockLabel(d.tSec, project.scenario.startTime).slice(0, 5)}</span>
+                    <span className="w-16 shrink-0 font-medium capitalize text-[#5b21b6]">
+                      {d.actor.kind === "agent" ? "victim" : d.actor.kind} {d.actor.idx + 1}
+                    </span>
+                    <span className="flex-1 text-[#5c6470]">{d.situation}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-[#1d2430]">{formatDist(d.probs, 4)}</span>
+                    <span className="shrink-0 rounded bg-[#f3edff] px-1.5 py-0.5 text-[9px] font-semibold text-[#5b21b6]">
+                      → {shortAction(d.action)}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          )}
+          {logTab === "events" && events.length === 0 && (
             <div className="py-3 text-center text-[11px] text-[#8a8272]">
               {activeRun ? "No simulated events in this run." : "Run a simulation to see its event log."}
             </div>
           )}
-          <div className="space-y-1">
+          <div className={cn("space-y-1", logTab !== "events" && "hidden")}>
             {visibleEvents
               .slice()
               .reverse()

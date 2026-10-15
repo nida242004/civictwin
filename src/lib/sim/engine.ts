@@ -27,6 +27,7 @@ import { applyOutages, computeCoverage, type CoverageResult } from "./scenarios"
 import { advanceAlong, positionOf } from "./walk";
 import { GUARD_CONDITION, type IncidentBeat, type IncidentRecord, type DramaFrame } from "./incidents";
 import { DramaDirector, dramaEnabled } from "./drama";
+import type { PolicyDecision } from "./policy";
 
 export const AGENT_STATE = { WAITING: 0, WALKING: 1, ARRIVED: 2, CANCELLED: 3 } as const;
 export const GUARD_STATE = { PATROLLING: 0, RESPONDING: 1, ON_SCENE: 2, RETURNING: 3, UNAVAILABLE: 4 } as const;
@@ -76,6 +77,8 @@ export interface SimulationResult {
   incidents: IncidentRecord[];
   /** Guard-seconds spent ASLEEP during the run. */
   guardAsleepSec: number;
+  /** Jev-policy decisions (empty without a scenario.jevPolicy table). */
+  decisions?: PolicyDecision[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -360,6 +363,7 @@ export function runSimulation(world: World, scenario: ScenarioConfig): Simulatio
     beats: dramaOut ? dramaOut.beats : [],
     incidents: dramaOut ? dramaOut.incidents : [],
     guardAsleepSec: dramaOut ? dramaOut.guardAsleepSec : 0,
+    decisions: dramaOut ? dramaOut.decisions : [],
   };
 }
 

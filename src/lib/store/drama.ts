@@ -29,6 +29,15 @@ interface DramaState {
   /** Most recent beat that has already fired (for voice/toasts). */
   latestBeat: ActiveBeat | null;
   setActiveBeats: (b: ActiveBeat[], latest: ActiveBeat | null) => void;
+  /** Show Jev decision thought bubbles during playback. */
+  showThinking: boolean;
+  setShowThinking: (v: boolean) => void;
+  /** Use a TypeSafe Jev behaviour policy for new baseline runs. */
+  jevBehaviour: boolean;
+  setJevBehaviour: (v: boolean) => void;
+  /** Where the last policy table came from. */
+  policyInfo: { from: string; latencyMs: number; entries: number } | null;
+  setPolicyInfo: (v: DramaState["policyInfo"]) => void;
 }
 
 /** Factory so secondary canvases (split replay) get an isolated drama store. */
@@ -39,6 +48,12 @@ export const createDramaStore = () =>
     activeBeats: [],
     latestBeat: null,
     setActiveBeats: (activeBeats, latestBeat) => set({ activeBeats, latestBeat }),
+    showThinking: true,
+    setShowThinking: (v) => set({ showThinking: v }),
+    jevBehaviour: true,
+    setJevBehaviour: (v) => set({ jevBehaviour: v }),
+    policyInfo: null,
+    setPolicyInfo: (policyInfo) => set({ policyInfo }),
   }));
 export type DramaStore = ReturnType<typeof createDramaStore>;
 

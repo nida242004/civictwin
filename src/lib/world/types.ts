@@ -7,6 +7,7 @@
  */
 
 import type { IncidentBeat, IncidentMix } from "../sim/incidents";
+import type { JevPolicy } from "../sim/policy";
 
 export const WORLD_SCHEMA_VERSION = 1;
 export const ENGINE_VERSION = "1.0.0";
@@ -235,6 +236,12 @@ export interface ScenarioConfig {
   guardFatigue?: number;
   /** Relative weights of perpetrator archetypes. Absent = DEFAULT_INCIDENT_MIX. */
   incidentMix?: IncidentMix;
+  /**
+   * TypeSafe Jev behaviour policy (situation → action distribution), fetched
+   * before the run. Absent = hand-tuned heuristics. Stored with the scenario
+   * so replays are identical.
+   */
+  jevPolicy?: JevPolicy;
 }
 
 export interface StoredRunEvent {

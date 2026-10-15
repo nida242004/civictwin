@@ -1,0 +1,1271 @@
+{
+ "version": 1,
+ "source": "prebaked",
+ "model": "jev-1.13.0",
+ "createdAt": "2026-10-15T12:24:07.424Z",
+ "table": {
+  "perp|mugger|lit|cctv|near_alert|alone": {
+   "keep_stalking": 0.09,
+   "attack_now": 0.01,
+   "hide": 0.23,
+   "abort": 0.67
+  },
+  "perp|mugger|lit|cctv|near_alert|group": {
+   "keep_stalking": 0.21,
+   "attack_now": 0.01,
+   "hide": 0.18,
+   "abort": 0.6
+  },
+  "perp|mugger|lit|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.33,
+   "attack_now": 0.02,
+   "hide": 0.29,
+   "abort": 0.36
+  },
+  "perp|mugger|lit|cctv|near_drowsy|group": {
+   "keep_stalking": 0.38,
+   "attack_now": 0.01,
+   "hide": 0.25,
+   "abort": 0.36
+  },
+  "perp|mugger|lit|cctv|mid_alert|alone": {
+   "keep_stalking": 0.3,
+   "attack_now": 0.01,
+   "hide": 0.28,
+   "abort": 0.41
+  },
+  "perp|mugger|lit|cctv|mid_alert|group": {
+   "keep_stalking": 0.37,
+   "attack_now": 0.01,
+   "hide": 0.19,
+   "abort": 0.43
+  },
+  "perp|mugger|lit|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.53,
+   "attack_now": 0.04,
+   "hide": 0.26,
+   "abort": 0.17
+  },
+  "perp|mugger|lit|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.59,
+   "attack_now": 0.02,
+   "hide": 0.18,
+   "abort": 0.21
+  },
+  "perp|mugger|lit|cctv|far|alone": {
+   "keep_stalking": 0.49,
+   "attack_now": 0.04,
+   "hide": 0.22,
+   "abort": 0.25
+  },
+  "perp|mugger|lit|cctv|far|group": {
+   "keep_stalking": 0.51,
+   "attack_now": 0.02,
+   "hide": 0.22,
+   "abort": 0.25
+  },
+  "perp|mugger|lit|nocctv|near_alert|alone": {
+   "keep_stalking": 0.39,
+   "attack_now": 0.09,
+   "hide": 0.22,
+   "abort": 0.3
+  },
+  "perp|mugger|lit|nocctv|near_alert|group": {
+   "keep_stalking": 0.56,
+   "attack_now": 0.03,
+   "hide": 0.17,
+   "abort": 0.24
+  },
+  "perp|mugger|lit|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.68,
+   "attack_now": 0.21,
+   "hide": 0.08,
+   "abort": 0.03
+  },
+  "perp|mugger|lit|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.77,
+   "attack_now": 0.09,
+   "hide": 0.07,
+   "abort": 0.07
+  },
+  "perp|mugger|lit|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.61,
+   "attack_now": 0.26,
+   "hide": 0.1,
+   "abort": 0.03
+  },
+  "perp|mugger|lit|nocctv|mid_alert|group": {
+   "keep_stalking": 0.72,
+   "attack_now": 0.08,
+   "hide": 0.11,
+   "abort": 0.09
+  },
+  "perp|mugger|lit|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.61,
+   "attack_now": 0.36,
+   "hide": 0.02,
+   "abort": 0.01
+  },
+  "perp|mugger|lit|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.78,
+   "attack_now": 0.15,
+   "hide": 0.04,
+   "abort": 0.03
+  },
+  "perp|mugger|lit|nocctv|far|alone": {
+   "keep_stalking": 0.43,
+   "attack_now": 0.53,
+   "hide": 0.03,
+   "abort": 0.01
+  },
+  "perp|mugger|lit|nocctv|far|group": {
+   "keep_stalking": 0.73,
+   "attack_now": 0.16,
+   "hide": 0.05,
+   "abort": 0.06
+  },
+  "perp|mugger|dim|cctv|near_alert|alone": {
+   "keep_stalking": 0.26,
+   "attack_now": 0.02,
+   "hide": 0.31,
+   "abort": 0.41
+  },
+  "perp|mugger|dim|cctv|near_alert|group": {
+   "keep_stalking": 0.34,
+   "attack_now": 0.01,
+   "hide": 0.26,
+   "abort": 0.39
+  },
+  "perp|mugger|dim|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.61,
+   "attack_now": 0.07,
+   "hide": 0.21,
+   "abort": 0.11
+  },
+  "perp|mugger|dim|cctv|near_drowsy|group": {
+   "keep_stalking": 0.65,
+   "attack_now": 0.02,
+   "hide": 0.2,
+   "abort": 0.13
+  },
+  "perp|mugger|dim|cctv|mid_alert|alone": {
+   "keep_stalking": 0.52,
+   "attack_now": 0.06,
+   "hide": 0.31,
+   "abort": 0.11
+  },
+  "perp|mugger|dim|cctv|mid_alert|group": {
+   "keep_stalking": 0.58,
+   "attack_now": 0.02,
+   "hide": 0.23,
+   "abort": 0.17
+  },
+  "perp|mugger|dim|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.71,
+   "attack_now": 0.16,
+   "hide": 0.1,
+   "abort": 0.03
+  },
+  "perp|mugger|dim|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.74,
+   "attack_now": 0.02,
+   "hide": 0.14,
+   "abort": 0.1
+  },
+  "perp|mugger|dim|cctv|far|alone": {
+   "keep_stalking": 0.7,
+   "attack_now": 0.19,
+   "hide": 0.09,
+   "abort": 0.02
+  },
+  "perp|mugger|dim|cctv|far|group": {
+   "keep_stalking": 0.82,
+   "attack_now": 0.05,
+   "hide": 0.09,
+   "abort": 0.04
+  },
+  "perp|mugger|dim|nocctv|near_alert|alone": {
+   "keep_stalking": 0.61,
+   "attack_now": 0.16,
+   "hide": 0.15,
+   "abort": 0.08
+  },
+  "perp|mugger|dim|nocctv|near_alert|group": {
+   "keep_stalking": 0.74,
+   "attack_now": 0.07,
+   "hide": 0.1,
+   "abort": 0.09
+  },
+  "perp|mugger|dim|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.61,
+   "attack_now": 0.37,
+   "hide": 0.02,
+   "abort": 0
+  },
+  "perp|mugger|dim|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.84,
+   "attack_now": 0.12,
+   "hide": 0.03,
+   "abort": 0.01
+  },
+  "perp|mugger|dim|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.62,
+   "attack_now": 0.31,
+   "hide": 0.06,
+   "abort": 0.01
+  },
+  "perp|mugger|dim|nocctv|mid_alert|group": {
+   "keep_stalking": 0.82,
+   "attack_now": 0.1,
+   "hide": 0.06,
+   "abort": 0.02
+  },
+  "perp|mugger|dim|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.55,
+   "attack_now": 0.44,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|mugger|dim|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.87,
+   "attack_now": 0.1,
+   "hide": 0.02,
+   "abort": 0.01
+  },
+  "perp|mugger|dim|nocctv|far|alone": {
+   "keep_stalking": 0.31,
+   "attack_now": 0.68,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|mugger|dim|nocctv|far|group": {
+   "keep_stalking": 0.77,
+   "attack_now": 0.16,
+   "hide": 0.03,
+   "abort": 0.04
+  },
+  "perp|mugger|dark|cctv|near_alert|alone": {
+   "keep_stalking": 0.28,
+   "attack_now": 0.02,
+   "hide": 0.35,
+   "abort": 0.35
+  },
+  "perp|mugger|dark|cctv|near_alert|group": {
+   "keep_stalking": 0.29,
+   "attack_now": 0.01,
+   "hide": 0.24,
+   "abort": 0.46
+  },
+  "perp|mugger|dark|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.61,
+   "attack_now": 0.11,
+   "hide": 0.22,
+   "abort": 0.06
+  },
+  "perp|mugger|dark|cctv|near_drowsy|group": {
+   "keep_stalking": 0.62,
+   "attack_now": 0.03,
+   "hide": 0.21,
+   "abort": 0.14
+  },
+  "perp|mugger|dark|cctv|mid_alert|alone": {
+   "keep_stalking": 0.51,
+   "attack_now": 0.07,
+   "hide": 0.31,
+   "abort": 0.11
+  },
+  "perp|mugger|dark|cctv|mid_alert|group": {
+   "keep_stalking": 0.55,
+   "attack_now": 0.03,
+   "hide": 0.25,
+   "abort": 0.17
+  },
+  "perp|mugger|dark|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.67,
+   "attack_now": 0.17,
+   "hide": 0.12,
+   "abort": 0.04
+  },
+  "perp|mugger|dark|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.75,
+   "attack_now": 0.06,
+   "hide": 0.12,
+   "abort": 0.07
+  },
+  "perp|mugger|dark|cctv|far|alone": {
+   "keep_stalking": 0.63,
+   "attack_now": 0.24,
+   "hide": 0.1,
+   "abort": 0.03
+  },
+  "perp|mugger|dark|cctv|far|group": {
+   "keep_stalking": 0.75,
+   "attack_now": 0.06,
+   "hide": 0.14,
+   "abort": 0.05
+  },
+  "perp|mugger|dark|nocctv|near_alert|alone": {
+   "keep_stalking": 0.6,
+   "attack_now": 0.17,
+   "hide": 0.17,
+   "abort": 0.06
+  },
+  "perp|mugger|dark|nocctv|near_alert|group": {
+   "keep_stalking": 0.66,
+   "attack_now": 0.05,
+   "hide": 0.16,
+   "abort": 0.13
+  },
+  "perp|mugger|dark|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.63,
+   "attack_now": 0.35,
+   "hide": 0.02,
+   "abort": 0
+  },
+  "perp|mugger|dark|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.82,
+   "attack_now": 0.1,
+   "hide": 0.06,
+   "abort": 0.02
+  },
+  "perp|mugger|dark|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.61,
+   "attack_now": 0.3,
+   "hide": 0.08,
+   "abort": 0.01
+  },
+  "perp|mugger|dark|nocctv|mid_alert|group": {
+   "keep_stalking": 0.76,
+   "attack_now": 0.15,
+   "hide": 0.07,
+   "abort": 0.02
+  },
+  "perp|mugger|dark|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.5,
+   "attack_now": 0.49,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|mugger|dark|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.82,
+   "attack_now": 0.15,
+   "hide": 0.02,
+   "abort": 0.01
+  },
+  "perp|mugger|dark|nocctv|far|alone": {
+   "keep_stalking": 0.25,
+   "attack_now": 0.74,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|mugger|dark|nocctv|far|group": {
+   "keep_stalking": 0.74,
+   "attack_now": 0.18,
+   "hide": 0.04,
+   "abort": 0.04
+  },
+  "victim|mugger|lit|near": {
+   "scream": 0.35,
+   "flee_to_guard": 0.64,
+   "flee_to_building": 0.01
+  },
+  "victim|mugger|lit|mid": {
+   "scream": 0.62,
+   "flee_to_guard": 0.35,
+   "flee_to_building": 0.03
+  },
+  "victim|mugger|lit|far": {
+   "scream": 0.86,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.14
+  },
+  "victim|mugger|dim|near": {
+   "scream": 0.42,
+   "flee_to_guard": 0.57,
+   "flee_to_building": 0.01
+  },
+  "victim|mugger|dim|mid": {
+   "scream": 0.71,
+   "flee_to_guard": 0.2,
+   "flee_to_building": 0.09
+  },
+  "victim|mugger|dim|far": {
+   "scream": 0.81,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.19
+  },
+  "victim|mugger|dark|near": {
+   "scream": 0.42,
+   "flee_to_guard": 0.57,
+   "flee_to_building": 0.01
+  },
+  "victim|mugger|dark|mid": {
+   "scream": 0.74,
+   "flee_to_guard": 0.2,
+   "flee_to_building": 0.06
+  },
+  "victim|mugger|dark|far": {
+   "scream": 0.83,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.17
+  },
+  "perp|harasser|lit|cctv|near_alert|alone": {
+   "keep_stalking": 0.1,
+   "attack_now": 0.01,
+   "hide": 0.2,
+   "abort": 0.69
+  },
+  "perp|harasser|lit|cctv|near_alert|group": {
+   "keep_stalking": 0.14,
+   "attack_now": 0.01,
+   "hide": 0.17,
+   "abort": 0.68
+  },
+  "perp|harasser|lit|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.3,
+   "attack_now": 0.03,
+   "hide": 0.27,
+   "abort": 0.4
+  },
+  "perp|harasser|lit|cctv|near_drowsy|group": {
+   "keep_stalking": 0.42,
+   "attack_now": 0.01,
+   "hide": 0.27,
+   "abort": 0.3
+  },
+  "perp|harasser|lit|cctv|mid_alert|alone": {
+   "keep_stalking": 0.25,
+   "attack_now": 0.01,
+   "hide": 0.26,
+   "abort": 0.48
+  },
+  "perp|harasser|lit|cctv|mid_alert|group": {
+   "keep_stalking": 0.32,
+   "attack_now": 0.01,
+   "hide": 0.25,
+   "abort": 0.42
+  },
+  "perp|harasser|lit|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.56,
+   "attack_now": 0.05,
+   "hide": 0.24,
+   "abort": 0.15
+  },
+  "perp|harasser|lit|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.51,
+   "attack_now": 0.02,
+   "hide": 0.22,
+   "abort": 0.25
+  },
+  "perp|harasser|lit|cctv|far|alone": {
+   "keep_stalking": 0.51,
+   "attack_now": 0.07,
+   "hide": 0.23,
+   "abort": 0.19
+  },
+  "perp|harasser|lit|cctv|far|group": {
+   "keep_stalking": 0.49,
+   "attack_now": 0.02,
+   "hide": 0.26,
+   "abort": 0.23
+  },
+  "perp|harasser|lit|nocctv|near_alert|alone": {
+   "keep_stalking": 0.37,
+   "attack_now": 0.07,
+   "hide": 0.28,
+   "abort": 0.28
+  },
+  "perp|harasser|lit|nocctv|near_alert|group": {
+   "keep_stalking": 0.49,
+   "attack_now": 0.02,
+   "hide": 0.17,
+   "abort": 0.32
+  },
+  "perp|harasser|lit|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.687,
+   "attack_now": 0.172,
+   "hide": 0.111,
+   "abort": 0.03
+  },
+  "perp|harasser|lit|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.75,
+   "attack_now": 0.07,
+   "hide": 0.12,
+   "abort": 0.06
+  },
+  "perp|harasser|lit|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.65,
+   "attack_now": 0.19,
+   "hide": 0.12,
+   "abort": 0.04
+  },
+  "perp|harasser|lit|nocctv|mid_alert|group": {
+   "keep_stalking": 0.71,
+   "attack_now": 0.08,
+   "hide": 0.11,
+   "abort": 0.1
+  },
+  "perp|harasser|lit|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.63,
+   "attack_now": 0.33,
+   "hide": 0.03,
+   "abort": 0.01
+  },
+  "perp|harasser|lit|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.8,
+   "attack_now": 0.08,
+   "hide": 0.07,
+   "abort": 0.05
+  },
+  "perp|harasser|lit|nocctv|far|alone": {
+   "keep_stalking": 0.52,
+   "attack_now": 0.44,
+   "hide": 0.03,
+   "abort": 0.01
+  },
+  "perp|harasser|lit|nocctv|far|group": {
+   "keep_stalking": 0.76,
+   "attack_now": 0.08,
+   "hide": 0.08,
+   "abort": 0.08
+  },
+  "perp|harasser|dim|cctv|near_alert|alone": {
+   "keep_stalking": 0.21,
+   "attack_now": 0.01,
+   "hide": 0.29,
+   "abort": 0.49
+  },
+  "perp|harasser|dim|cctv|near_alert|group": {
+   "keep_stalking": 0.3,
+   "attack_now": 0.01,
+   "hide": 0.24,
+   "abort": 0.45
+  },
+  "perp|harasser|dim|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.6,
+   "attack_now": 0.07,
+   "hide": 0.24,
+   "abort": 0.09
+  },
+  "perp|harasser|dim|cctv|near_drowsy|group": {
+   "keep_stalking": 0.58,
+   "attack_now": 0.03,
+   "hide": 0.21,
+   "abort": 0.18
+  },
+  "perp|harasser|dim|cctv|mid_alert|alone": {
+   "keep_stalking": 0.45,
+   "attack_now": 0.04,
+   "hide": 0.31,
+   "abort": 0.2
+  },
+  "perp|harasser|dim|cctv|mid_alert|group": {
+   "keep_stalking": 0.51,
+   "attack_now": 0.02,
+   "hide": 0.26,
+   "abort": 0.21
+  },
+  "perp|harasser|dim|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.69,
+   "attack_now": 0.08,
+   "hide": 0.19,
+   "abort": 0.04
+  },
+  "perp|harasser|dim|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.69,
+   "attack_now": 0.03,
+   "hide": 0.16,
+   "abort": 0.12
+  },
+  "perp|harasser|dim|cctv|far|alone": {
+   "keep_stalking": 0.7,
+   "attack_now": 0.12,
+   "hide": 0.13,
+   "abort": 0.05
+  },
+  "perp|harasser|dim|cctv|far|group": {
+   "keep_stalking": 0.79,
+   "attack_now": 0.04,
+   "hide": 0.11,
+   "abort": 0.06
+  },
+  "perp|harasser|dim|nocctv|near_alert|alone": {
+   "keep_stalking": 0.55,
+   "attack_now": 0.12,
+   "hide": 0.25,
+   "abort": 0.08
+  },
+  "perp|harasser|dim|nocctv|near_alert|group": {
+   "keep_stalking": 0.67,
+   "attack_now": 0.05,
+   "hide": 0.17,
+   "abort": 0.11
+  },
+  "perp|harasser|dim|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.72,
+   "attack_now": 0.22,
+   "hide": 0.05,
+   "abort": 0.01
+  },
+  "perp|harasser|dim|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.83,
+   "attack_now": 0.09,
+   "hide": 0.07,
+   "abort": 0.01
+  },
+  "perp|harasser|dim|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.6,
+   "attack_now": 0.27,
+   "hide": 0.12,
+   "abort": 0.01
+  },
+  "perp|harasser|dim|nocctv|mid_alert|group": {
+   "keep_stalking": 0.81,
+   "attack_now": 0.08,
+   "hide": 0.09,
+   "abort": 0.02
+  },
+  "perp|harasser|dim|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.64,
+   "attack_now": 0.34,
+   "hide": 0.02,
+   "abort": 0
+  },
+  "perp|harasser|dim|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.87,
+   "attack_now": 0.09,
+   "hide": 0.03,
+   "abort": 0.01
+  },
+  "perp|harasser|dim|nocctv|far|alone": {
+   "keep_stalking": 0.38,
+   "attack_now": 0.61,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|harasser|dim|nocctv|far|group": {
+   "keep_stalking": 0.86,
+   "attack_now": 0.06,
+   "hide": 0.05,
+   "abort": 0.03
+  },
+  "perp|harasser|dark|cctv|near_alert|alone": {
+   "keep_stalking": 0.18,
+   "attack_now": 0.02,
+   "hide": 0.32,
+   "abort": 0.48
+  },
+  "perp|harasser|dark|cctv|near_alert|group": {
+   "keep_stalking": 0.3,
+   "attack_now": 0.01,
+   "hide": 0.25,
+   "abort": 0.44
+  },
+  "perp|harasser|dark|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.58,
+   "attack_now": 0.08,
+   "hide": 0.24,
+   "abort": 0.1
+  },
+  "perp|harasser|dark|cctv|near_drowsy|group": {
+   "keep_stalking": 0.62,
+   "attack_now": 0.03,
+   "hide": 0.22,
+   "abort": 0.13
+  },
+  "perp|harasser|dark|cctv|mid_alert|alone": {
+   "keep_stalking": 0.44,
+   "attack_now": 0.06,
+   "hide": 0.33,
+   "abort": 0.17
+  },
+  "perp|harasser|dark|cctv|mid_alert|group": {
+   "keep_stalking": 0.54,
+   "attack_now": 0.03,
+   "hide": 0.24,
+   "abort": 0.19
+  },
+  "perp|harasser|dark|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.67,
+   "attack_now": 0.15,
+   "hide": 0.16,
+   "abort": 0.02
+  },
+  "perp|harasser|dark|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.71,
+   "attack_now": 0.06,
+   "hide": 0.16,
+   "abort": 0.07
+  },
+  "perp|harasser|dark|cctv|far|alone": {
+   "keep_stalking": 0.66,
+   "attack_now": 0.16,
+   "hide": 0.12,
+   "abort": 0.06
+  },
+  "perp|harasser|dark|cctv|far|group": {
+   "keep_stalking": 0.72,
+   "attack_now": 0.06,
+   "hide": 0.15,
+   "abort": 0.07
+  },
+  "perp|harasser|dark|nocctv|near_alert|alone": {
+   "keep_stalking": 0.52,
+   "attack_now": 0.14,
+   "hide": 0.27,
+   "abort": 0.07
+  },
+  "perp|harasser|dark|nocctv|near_alert|group": {
+   "keep_stalking": 0.65,
+   "attack_now": 0.06,
+   "hide": 0.2,
+   "abort": 0.09
+  },
+  "perp|harasser|dark|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.7,
+   "attack_now": 0.22,
+   "hide": 0.07,
+   "abort": 0.01
+  },
+  "perp|harasser|dark|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.83,
+   "attack_now": 0.1,
+   "hide": 0.06,
+   "abort": 0.01
+  },
+  "perp|harasser|dark|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.6,
+   "attack_now": 0.26,
+   "hide": 0.13,
+   "abort": 0.01
+  },
+  "perp|harasser|dark|nocctv|mid_alert|group": {
+   "keep_stalking": 0.76,
+   "attack_now": 0.12,
+   "hide": 0.1,
+   "abort": 0.02
+  },
+  "perp|harasser|dark|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.59,
+   "attack_now": 0.38,
+   "hide": 0.03,
+   "abort": 0
+  },
+  "perp|harasser|dark|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.8,
+   "attack_now": 0.16,
+   "hide": 0.03,
+   "abort": 0.01
+  },
+  "perp|harasser|dark|nocctv|far|alone": {
+   "keep_stalking": 0.38,
+   "attack_now": 0.61,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|harasser|dark|nocctv|far|group": {
+   "keep_stalking": 0.81,
+   "attack_now": 0.13,
+   "hide": 0.04,
+   "abort": 0.02
+  },
+  "victim|harasser|lit|near": {
+   "scream": 0.16,
+   "flee_to_guard": 0.82,
+   "flee_to_building": 0.02
+  },
+  "victim|harasser|lit|mid": {
+   "scream": 0.43,
+   "flee_to_guard": 0.43,
+   "flee_to_building": 0.14
+  },
+  "victim|harasser|lit|far": {
+   "scream": 0.68,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.32
+  },
+  "victim|harasser|dim|near": {
+   "scream": 0.16,
+   "flee_to_guard": 0.81,
+   "flee_to_building": 0.03
+  },
+  "victim|harasser|dim|mid": {
+   "scream": 0.54,
+   "flee_to_guard": 0.26,
+   "flee_to_building": 0.2
+  },
+  "victim|harasser|dim|far": {
+   "scream": 0.7,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.3
+  },
+  "victim|harasser|dark|near": {
+   "scream": 0.18,
+   "flee_to_guard": 0.8,
+   "flee_to_building": 0.02
+  },
+  "victim|harasser|dark|mid": {
+   "scream": 0.56,
+   "flee_to_guard": 0.3,
+   "flee_to_building": 0.14
+  },
+  "victim|harasser|dark|far": {
+   "scream": 0.69,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.31
+  },
+  "perp|chain_snatcher|lit|cctv|near_alert|alone": {
+   "keep_stalking": 0.18,
+   "attack_now": 0.01,
+   "hide": 0.24,
+   "abort": 0.57
+  },
+  "perp|chain_snatcher|lit|cctv|near_alert|group": {
+   "keep_stalking": 0.23,
+   "attack_now": 0.01,
+   "hide": 0.21,
+   "abort": 0.55
+  },
+  "perp|chain_snatcher|lit|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.45,
+   "attack_now": 0.03,
+   "hide": 0.26,
+   "abort": 0.26
+  },
+  "perp|chain_snatcher|lit|cctv|near_drowsy|group": {
+   "keep_stalking": 0.49,
+   "attack_now": 0.02,
+   "hide": 0.23,
+   "abort": 0.26
+  },
+  "perp|chain_snatcher|lit|cctv|mid_alert|alone": {
+   "keep_stalking": 0.44,
+   "attack_now": 0.02,
+   "hide": 0.27,
+   "abort": 0.27
+  },
+  "perp|chain_snatcher|lit|cctv|mid_alert|group": {
+   "keep_stalking": 0.545,
+   "attack_now": 0.02,
+   "hide": 0.162,
+   "abort": 0.273
+  },
+  "perp|chain_snatcher|lit|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.65,
+   "attack_now": 0.07,
+   "hide": 0.19,
+   "abort": 0.09
+  },
+  "perp|chain_snatcher|lit|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.63,
+   "attack_now": 0.04,
+   "hide": 0.15,
+   "abort": 0.18
+  },
+  "perp|chain_snatcher|lit|cctv|far|alone": {
+   "keep_stalking": 0.65,
+   "attack_now": 0.08,
+   "hide": 0.19,
+   "abort": 0.08
+  },
+  "perp|chain_snatcher|lit|cctv|far|group": {
+   "keep_stalking": 0.68,
+   "attack_now": 0.05,
+   "hide": 0.12,
+   "abort": 0.15
+  },
+  "perp|chain_snatcher|lit|nocctv|near_alert|alone": {
+   "keep_stalking": 0.52,
+   "attack_now": 0.17,
+   "hide": 0.18,
+   "abort": 0.13
+  },
+  "perp|chain_snatcher|lit|nocctv|near_alert|group": {
+   "keep_stalking": 0.59,
+   "attack_now": 0.06,
+   "hide": 0.17,
+   "abort": 0.18
+  },
+  "perp|chain_snatcher|lit|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.62,
+   "attack_now": 0.33,
+   "hide": 0.04,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|lit|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.74,
+   "attack_now": 0.19,
+   "hide": 0.05,
+   "abort": 0.02
+  },
+  "perp|chain_snatcher|lit|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.62,
+   "attack_now": 0.26,
+   "hide": 0.09,
+   "abort": 0.03
+  },
+  "perp|chain_snatcher|lit|nocctv|mid_alert|group": {
+   "keep_stalking": 0.71,
+   "attack_now": 0.2,
+   "hide": 0.05,
+   "abort": 0.04
+  },
+  "perp|chain_snatcher|lit|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.52,
+   "attack_now": 0.47,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|chain_snatcher|lit|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.72,
+   "attack_now": 0.24,
+   "hide": 0.02,
+   "abort": 0.02
+  },
+  "perp|chain_snatcher|lit|nocctv|far|alone": {
+   "keep_stalking": 0.34,
+   "attack_now": 0.65,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|chain_snatcher|lit|nocctv|far|group": {
+   "keep_stalking": 0.64,
+   "attack_now": 0.31,
+   "hide": 0.02,
+   "abort": 0.03
+  },
+  "perp|chain_snatcher|dim|cctv|near_alert|alone": {
+   "keep_stalking": 0.32,
+   "attack_now": 0.03,
+   "hide": 0.32,
+   "abort": 0.33
+  },
+  "perp|chain_snatcher|dim|cctv|near_alert|group": {
+   "keep_stalking": 0.39,
+   "attack_now": 0.02,
+   "hide": 0.28,
+   "abort": 0.31
+  },
+  "perp|chain_snatcher|dim|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.63,
+   "attack_now": 0.09,
+   "hide": 0.23,
+   "abort": 0.05
+  },
+  "perp|chain_snatcher|dim|cctv|near_drowsy|group": {
+   "keep_stalking": 0.69,
+   "attack_now": 0.04,
+   "hide": 0.16,
+   "abort": 0.11
+  },
+  "perp|chain_snatcher|dim|cctv|mid_alert|alone": {
+   "keep_stalking": 0.63,
+   "attack_now": 0.08,
+   "hide": 0.23,
+   "abort": 0.06
+  },
+  "perp|chain_snatcher|dim|cctv|mid_alert|group": {
+   "keep_stalking": 0.63,
+   "attack_now": 0.03,
+   "hide": 0.19,
+   "abort": 0.15
+  },
+  "perp|chain_snatcher|dim|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.71,
+   "attack_now": 0.17,
+   "hide": 0.1,
+   "abort": 0.02
+  },
+  "perp|chain_snatcher|dim|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.75,
+   "attack_now": 0.13,
+   "hide": 0.09,
+   "abort": 0.03
+  },
+  "perp|chain_snatcher|dim|cctv|far|alone": {
+   "keep_stalking": 0.65,
+   "attack_now": 0.26,
+   "hide": 0.07,
+   "abort": 0.02
+  },
+  "perp|chain_snatcher|dim|cctv|far|group": {
+   "keep_stalking": 0.78,
+   "attack_now": 0.13,
+   "hide": 0.07,
+   "abort": 0.02
+  },
+  "perp|chain_snatcher|dim|nocctv|near_alert|alone": {
+   "keep_stalking": 0.64,
+   "attack_now": 0.16,
+   "hide": 0.15,
+   "abort": 0.05
+  },
+  "perp|chain_snatcher|dim|nocctv|near_alert|group": {
+   "keep_stalking": 0.72,
+   "attack_now": 0.08,
+   "hide": 0.13,
+   "abort": 0.07
+  },
+  "perp|chain_snatcher|dim|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.59,
+   "attack_now": 0.38,
+   "hide": 0.03,
+   "abort": 0
+  },
+  "perp|chain_snatcher|dim|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.82,
+   "attack_now": 0.15,
+   "hide": 0.02,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dim|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.67,
+   "attack_now": 0.24,
+   "hide": 0.08,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dim|nocctv|mid_alert|group": {
+   "keep_stalking": 0.8,
+   "attack_now": 0.13,
+   "hide": 0.06,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dim|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.58,
+   "attack_now": 0.41,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|chain_snatcher|dim|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.76,
+   "attack_now": 0.21,
+   "hide": 0.02,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dim|nocctv|far|alone": {
+   "keep_stalking": 0.23,
+   "attack_now": 0.76,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|chain_snatcher|dim|nocctv|far|group": {
+   "keep_stalking": 0.74,
+   "attack_now": 0.21,
+   "hide": 0.03,
+   "abort": 0.02
+  },
+  "perp|chain_snatcher|dark|cctv|near_alert|alone": {
+   "keep_stalking": 0.37,
+   "attack_now": 0.04,
+   "hide": 0.32,
+   "abort": 0.27
+  },
+  "perp|chain_snatcher|dark|cctv|near_alert|group": {
+   "keep_stalking": 0.39,
+   "attack_now": 0.02,
+   "hide": 0.29,
+   "abort": 0.3
+  },
+  "perp|chain_snatcher|dark|cctv|near_drowsy|alone": {
+   "keep_stalking": 0.67,
+   "attack_now": 0.13,
+   "hide": 0.16,
+   "abort": 0.04
+  },
+  "perp|chain_snatcher|dark|cctv|near_drowsy|group": {
+   "keep_stalking": 0.69,
+   "attack_now": 0.07,
+   "hide": 0.16,
+   "abort": 0.08
+  },
+  "perp|chain_snatcher|dark|cctv|mid_alert|alone": {
+   "keep_stalking": 0.58,
+   "attack_now": 0.09,
+   "hide": 0.27,
+   "abort": 0.06
+  },
+  "perp|chain_snatcher|dark|cctv|mid_alert|group": {
+   "keep_stalking": 0.58,
+   "attack_now": 0.04,
+   "hide": 0.2,
+   "abort": 0.18
+  },
+  "perp|chain_snatcher|dark|cctv|mid_drowsy|alone": {
+   "keep_stalking": 0.69,
+   "attack_now": 0.19,
+   "hide": 0.09,
+   "abort": 0.03
+  },
+  "perp|chain_snatcher|dark|cctv|mid_drowsy|group": {
+   "keep_stalking": 0.74,
+   "attack_now": 0.12,
+   "hide": 0.11,
+   "abort": 0.03
+  },
+  "perp|chain_snatcher|dark|cctv|far|alone": {
+   "keep_stalking": 0.53,
+   "attack_now": 0.4,
+   "hide": 0.06,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dark|cctv|far|group": {
+   "keep_stalking": 0.73,
+   "attack_now": 0.15,
+   "hide": 0.09,
+   "abort": 0.03
+  },
+  "perp|chain_snatcher|dark|nocctv|near_alert|alone": {
+   "keep_stalking": 0.6,
+   "attack_now": 0.16,
+   "hide": 0.19,
+   "abort": 0.05
+  },
+  "perp|chain_snatcher|dark|nocctv|near_alert|group": {
+   "keep_stalking": 0.73,
+   "attack_now": 0.11,
+   "hide": 0.09,
+   "abort": 0.07
+  },
+  "perp|chain_snatcher|dark|nocctv|near_drowsy|alone": {
+   "keep_stalking": 0.6,
+   "attack_now": 0.38,
+   "hide": 0.02,
+   "abort": 0
+  },
+  "perp|chain_snatcher|dark|nocctv|near_drowsy|group": {
+   "keep_stalking": 0.77,
+   "attack_now": 0.19,
+   "hide": 0.03,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dark|nocctv|mid_alert|alone": {
+   "keep_stalking": 0.62,
+   "attack_now": 0.28,
+   "hide": 0.09,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dark|nocctv|mid_alert|group": {
+   "keep_stalking": 0.75,
+   "attack_now": 0.19,
+   "hide": 0.05,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dark|nocctv|mid_drowsy|alone": {
+   "keep_stalking": 0.46,
+   "attack_now": 0.53,
+   "hide": 0.01,
+   "abort": 0
+  },
+  "perp|chain_snatcher|dark|nocctv|mid_drowsy|group": {
+   "keep_stalking": 0.68,
+   "attack_now": 0.3,
+   "hide": 0.01,
+   "abort": 0.01
+  },
+  "perp|chain_snatcher|dark|nocctv|far|alone": {
+   "keep_stalking": 0.18,
+   "attack_now": 0.82,
+   "hide": 0,
+   "abort": 0
+  },
+  "perp|chain_snatcher|dark|nocctv|far|group": {
+   "keep_stalking": 0.67,
+   "attack_now": 0.28,
+   "hide": 0.02,
+   "abort": 0.03
+  },
+  "victim|chain_snatcher|lit|near": {
+   "scream": 0.35,
+   "flee_to_guard": 0.64,
+   "flee_to_building": 0.01
+  },
+  "victim|chain_snatcher|lit|mid": {
+   "scream": 0.69,
+   "flee_to_guard": 0.27,
+   "flee_to_building": 0.04
+  },
+  "victim|chain_snatcher|lit|far": {
+   "scream": 0.9,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.1
+  },
+  "victim|chain_snatcher|dim|near": {
+   "scream": 0.36,
+   "flee_to_guard": 0.63,
+   "flee_to_building": 0.01
+  },
+  "victim|chain_snatcher|dim|mid": {
+   "scream": 0.75,
+   "flee_to_guard": 0.18,
+   "flee_to_building": 0.07
+  },
+  "victim|chain_snatcher|dim|far": {
+   "scream": 0.86,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.14
+  },
+  "victim|chain_snatcher|dark|near": {
+   "scream": 0.39,
+   "flee_to_guard": 0.6,
+   "flee_to_building": 0.01
+  },
+  "victim|chain_snatcher|dark|mid": {
+   "scream": 0.76,
+   "flee_to_guard": 0.17,
+   "flee_to_building": 0.07
+  },
+  "victim|chain_snatcher|dark|far": {
+   "scream": 0.87,
+   "flee_to_guard": 0,
+   "flee_to_building": 0.13
+  },
+  "guard|lit|cctv|early": {
+   "stay_alert": 0.97,
+   "doze": 0.03
+  },
+  "guard|lit|cctv|late": {
+   "stay_alert": 0.94,
+   "doze": 0.06
+  },
+  "guard|lit|nocctv|early": {
+   "stay_alert": 0.36,
+   "doze": 0.64
+  },
+  "guard|lit|nocctv|late": {
+   "stay_alert": 0.19,
+   "doze": 0.81
+  },
+  "guard|dim|cctv|early": {
+   "stay_alert": 0.95,
+   "doze": 0.05
+  },
+  "guard|dim|cctv|late": {
+   "stay_alert": 0.86,
+   "doze": 0.14
+  },
+  "guard|dim|nocctv|early": {
+   "stay_alert": 0.22,
+   "doze": 0.78
+  },
+  "guard|dim|nocctv|late": {
+   "stay_alert": 0.1,
+   "doze": 0.9
+  },
+  "guard|dark|cctv|early": {
+   "stay_alert": 0.93,
+   "doze": 0.07
+  },
+  "guard|dark|cctv|late": {
+   "stay_alert": 0.83,
+   "doze": 0.17
+  },
+  "guard|dark|nocctv|early": {
+   "stay_alert": 0.24,
+   "doze": 0.76
+  },
+  "guard|dark|nocctv|late": {
+   "stay_alert": 0.13,
+   "doze": 0.87
+  }
+ }
+}

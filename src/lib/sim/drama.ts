@@ -32,6 +32,20 @@ import {
   type IncidentRecord,
   type PerpKind,
 } from "./incidents";
+import {
+  GUARD_ACTIONS,
+  PERP_ACTIONS,
+  VICTIM_ACTIONS,
+  describeKey,
+  guardDistOf,
+  guardKey,
+  guardNearOf,
+  lightingOf,
+  perpKey,
+  victimKey,
+  type PolicyDecision,
+  type VictimAction,
+} from "./policy";
 
 // Mirrors of engine constants (kept local to avoid a runtime import cycle).
 const A_WALKING = 1;
@@ -111,6 +125,8 @@ interface IncRT {
   dispatchedBeat: boolean;
   arrivedBeat: boolean;
   targetCam: number;
+  /** Jev-policy reaction of the victim (null = heuristic). */
+  victimAction: VictimAction | null;
 }
 
 interface PerpRT {
@@ -139,6 +155,8 @@ interface PerpRT {
   cooldownUntil: number;
   /** the opener is bold: not spooked by passing patrols */
   bold: boolean;
+  /** next time a Jev-policy stalking decision is due */
+  decideAt: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -169,11 +187,14 @@ export class DramaDirector {
   private ap: Pt[] = [];
   private gp: Pt[] = [];
   private incCounter = 0;
+  private policy: Record<string, Record<string, number>> | null;
+  private decisions: PolicyDecision[] = [];
 
   constructor(ctx: DramaCtx) {
     this.ctx = ctx;
     const sc = ctx.scenario;
-    this.rng = makeRng(((sc.seed | 0) ^ 0x5eed_d7a3) | 0);
+    this.policy = sc.jevPolicy?.table && Object.keys(sc.jevPolicy.table).length ? sc.jevPolicy.table : null;
+    this.rng =makeRng(((sc.seed | 0) ^ 0x5eed_d7a3) | 0);
     this.agentDrama = new Uint8Array(ctx.agents.length);
     this.lights = ctx.world.streetlights.slice();
     this.cams = ctx.world.cameras;
@@ -315,6 +336,7 @@ export class DramaDirector {
         openerVictim: opener ? openerVictim : -1,
         cooldownUntil: 0,
         bold: opener,
+        decideAt: 0,
       });
     }
   }
@@ -487,8 +509,18 @@ export class DramaDirector {
         const p = this.gp[gi];
         this.beat(t, "guard_drowsy", this.guardRef(gi), p.x, p.z, `${this.gname(gi)} is yawning — eyes getting heavy`, 1);
       } else if (g.cond === GUARD_CONDITION.DROWSY && t >= this.asleepAt[gi] && this.freeGuard(g)) {
-        g.cond = GUARD_CONDITION.ASLEEP;
         const p = this.gp[gi];
+        if (this.policy) {
+          const key = guardKey(lightingOf(this.lightF(p.x, p.z)), this.camCovering(p.x, p.z) >= 0, t > this.ctx.duration / 2);
+          if (this.decide(key, GUARD_ACTIONS, this.guardRef(gi), p.x, p.z, t) === "stay_alert") {
+            g.cond = GUARD_CONDITION.ALERT;
+            this.drowsyAt[gi] = t + 240;
+            this.asleepAt[gi] = t + 360;
+            this.beat(t, "guard_wakes", this.guardRef(gi), p.x, p.z, `${this.gname(gi)} shakes off the fatigue — staying alert`, 1);
+            continue;
+          }
+        }
+        g.cond = GUARD_CONDITION.ASLEEP;
         this.beat(
           t,
           "guard_asleep",
@@ -582,6 +614,96 @@ export class DramaDirector {
       }
     }
     return best;
+  }
+
+  /* ------------------------- Jev policy ------------------------- */
+
+  /**
+   * Sample an action for `key` from the policy table using the SEEDED rng.
+   * Returns null (and consumes no randomness) when there is no table entry,
+   * so callers fall back to the heuristics.
+   */
+  private decide(key: string, actions: readonly string[], actor: PolicyDecision["actor"], x: number, z: number, t: number): string | null {
+    const probs = this.policy?.[key];
+    if (!probs) return null;
+    const w = actions.map((a) => Math.max(0, Number(probs[a]) || 0));
+    if (w.every((v) => v <= 0)) return null;
+    const action = actions[this.rng.weighted(w)];
+    const dist: Record<string, number> = {};
+    actions.forEach((a, k) => (dist[a] = w[k]));
+    this.decisions.push({ tSec: t, actor, x, z, key, situation: describeKey(key), action, probs: dist });
+    return action;
+  }
+
+  /** Nearest non-sleeping guard: distance + whether that guard is drowsy. */
+  private nearestGuardState(x: number, z: number): { d: number; drowsy: boolean } {
+    let d = Infinity;
+    let drowsy = false;
+    for (let gi = 0; gi < this.ctx.guards.length; gi++) {
+      if (!this.awake(gi)) continue;
+      const dd = dist(this.gp[gi].x, this.gp[gi].z, x, z);
+      if (dd < d) {
+        d = dd;
+        drowsy = this.ctx.guards[gi].cond === GUARD_CONDITION.DROWSY;
+      }
+    }
+    return { d, drowsy };
+  }
+
+  private isAlone(ai: number): boolean {
+    const { agents } = this.ctx;
+    const q = this.ap[ai];
+    for (let bi = 0; bi < agents.length; bi++) {
+      if (bi === ai || agents[bi].state !== A_WALKING) continue;
+      if (dist(this.ap[bi].x, this.ap[bi].z, q.x, q.z) < 15) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Policy-driven stalking decision. Returns "none" when the table has no
+   * entry (use heuristics), "wait" to keep stalking this step, "exit" when the
+   * perp left the STALKING state.
+   */
+  private policyStalk(i: number, t: number, stalked: number): "none" | "wait" | "exit" {
+    const p = this.perps[i];
+    const v = p.victim;
+    const vp = this.ap[v];
+    const g = this.nearestGuardState(vp.x, vp.z);
+    const key = perpKey(
+      p.kind,
+      lightingOf(this.lightF(vp.x, vp.z)),
+      this.camCovering(vp.x, vp.z) >= 0,
+      guardNearOf(g.d, g.drowsy),
+      this.isAlone(v)
+    );
+    if (!this.policy?.[key]) return "none";
+    if (stalked > 90) {
+      p.pounce = true; // patience runs out
+      return "wait";
+    }
+    if (stalked < 6 || t < p.decideAt) return "wait";
+    p.decideAt = t + 6;
+    const action = this.decide(key, PERP_ACTIONS, this.perpRef(i), p.x, p.z, t);
+    if (action === "attack_now") p.pounce = true;
+    else if (action === "hide") {
+      this.releaseVictim(p);
+      p.cooldownUntil = t + 45;
+      p.state = PERP_STATE.LURKING;
+      p.lurkSince = t;
+      this.beat(t, "perp_flee", this.perpRef(i), p.x, p.z, "Too risky here — he drops back into the shadows to wait", 1);
+      this.chooseLurk(p);
+      return "exit";
+    } else if (action === "abort") {
+      this.releaseVictim(p);
+      p.exit = this.nearestExit(p.x, p.z);
+      p.state = PERP_STATE.FLEEING;
+      p.fleeStart = t - 15; // walk off casually
+      this.setPath(p, p.exit.x, p.exit.z);
+      this.beat(t, "perp_flee", this.perpRef(i), p.x, p.z, "He gives up and walks off toward the exit", 1);
+      return "exit";
+    }
+    return "wait";
   }
 
   private stepPerp(i: number, t: number) {
@@ -680,7 +802,13 @@ export class DramaDirector {
         }
         const vp = this.ap[v];
         const stalked = t - p.stalkSince;
-        if (!p.pounce) {
+        let byPolicy = false;
+        if (!p.pounce && this.policy && !p.bold) {
+          const r = this.policyStalk(i, t, stalked);
+          if (r === "exit") return;
+          byPolicy = r === "wait";
+        }
+        if (!p.pounce && !byPolicy) {
           const bad = this.lightF(vp.x, vp.z) < 0.7 || this.camCovering(vp.x, vp.z) < 0;
           if ((stalked > 8 && bad) || stalked > 45) p.pounce = true;
         }
@@ -709,7 +837,9 @@ export class DramaDirector {
             this.perpRef(i),
             p.x,
             p.z,
-            `The ${PERP_KIND_LABEL[p.kind]} got away through ${p.exit?.name ?? "the dark"}`,
+            p.inc
+              ? `The ${PERP_KIND_LABEL[p.kind]} got away through ${p.exit?.name ?? "the dark"}`
+              : `The ${PERP_KIND_LABEL[p.kind]} left through ${p.exit?.name ?? "the dark"}`,
             p.inc ? 3 : 1,
             p.inc?.rec.eventId ?? null
           );
@@ -815,9 +945,23 @@ export class DramaDirector {
       dispatchedBeat: false,
       arrivedBeat: false,
       targetCam,
+      victimAction: null,
     };
     // who might hear it
-    const screams = victimIdx !== null && this.rng.next() < SCREAM_P[p.kind];
+    let victimAction: VictimAction | null = null;
+    if (victimIdx !== null && this.policy) {
+      const g = this.nearestGuardState(x, z);
+      victimAction = this.decide(
+        victimKey(p.kind, lightingOf(this.lightF(x, z)), guardDistOf(g.d)),
+        VICTIM_ACTIONS,
+        this.agentRef(victimIdx),
+        x,
+        z,
+        t
+      ) as VictimAction | null;
+    }
+    inc.victimAction = victimAction;
+    const screams = victimAction ?victimAction === "scream" : victimIdx !== null && this.rng.next() < SCREAM_P[p.kind];
     if (screams) inc.screamAt = t + (p.kind === "chain_snatcher" ? 1 : 3);
     let nearB = -1;
     let nd = RESIDENT_EARSHOT_M;
@@ -912,7 +1056,9 @@ export class DramaDirector {
     const v = p.victim;
     if (v >= 0 && agents[v].dramaLock) {
       const q = this.ap[v];
-      const gi = this.nearestAwakeGuard(q.x, q.z, 60);
+      const va = p.inc?.victimAction ?? null;
+      const gi =
+        va === "flee_to_building" ? -1 : this.nearestAwakeGuard(q.x, q.z, va === "flee_to_guard" ? 150 : 60);
       let tx: number;
       let tz: number;
       if (gi >= 0) {
@@ -1232,7 +1378,13 @@ export class DramaDirector {
     return { perpPos, perpState, perpKind, agentDrama: this.agentDrama.slice(), guardCondition };
   }
 
-  finalize(): { events: StoredRunEvent[]; incidents: IncidentRecord[]; beats: IncidentBeat[]; guardAsleepSec: number } {
+  finalize(): {
+    events: StoredRunEvent[];
+    incidents: IncidentRecord[];
+    beats: IncidentBeat[];
+    guardAsleepSec: number;
+    decisions: PolicyDecision[];
+  } {
     const { guards } = this.ctx;
     const events: StoredRunEvent[] = this.incidents.map((inc) => {
       const r = inc.rec;
@@ -1272,7 +1424,7 @@ export class DramaDirector {
     });
     // stable sort by time (beats are pushed in time order already; keep insertion order for ties)
     const beats = this.beats.map((b, i) => ({ b, i })).sort((a, b) => a.b.tSec - b.b.tSec || a.i - b.i).map((x) => x.b);
-    return { events, incidents: this.incidents.map((i) => i.rec), beats, guardAsleepSec: this.asleepSec };
+    return { events, incidents: this.incidents.map((i) => i.rec), beats, guardAsleepSec: this.asleepSec, decisions: this.decisions };
   }
 }
 

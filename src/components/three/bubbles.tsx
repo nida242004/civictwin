@@ -8,7 +8,9 @@
  * stays readable at every zoom level; close-by bubbles are stacked.
  */
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
+import { useDrama } from "@/lib/store/drama";
+import { formatDist, shortAction, type PolicyDecision } from "@/lib/sim/policy";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
@@ -258,6 +260,102 @@ export function BeatBubbles() {
         <Sfx key={`sfx-${b.key}`} beat={b} word={SFX[b.kind]!} />
       ))}
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Jev "AI thinking" bubbles                                           */
+/* ------------------------------------------------------------------ */
+
+const THINK_SEC = 3.2;
+const THINK_ACTOR_GAP = 10;
+
+/**
+ * Rate-limited list of policy decisions worth showing: per actor at most one
+ * bubble every THINK_ACTOR_GAP s, and a repeat of the same action by the same
+ * actor within 30 s is skipped (e.g. "keep stalking" every 6 s).
+ */
+type UiDecision = PolicyDecision & { uid: number };
+
+export function thinkingDecisions(decisions: PolicyDecision[]): UiDecision[] {
+  const lastAt = new Map<string, { t: number; a: string }>();
+  const out: UiDecision[] = [];
+  decisions.forEach((d, uid) => {
+    const id = `${d.actor.kind}:${d.actor.idx}`;
+    const prev = lastAt.get(id);
+    if (prev && (d.tSec - prev.t < THINK_ACTOR_GAP || (prev.a === d.action && d.tSec - prev.t < 30))) return;
+    lastAt.set(id, { t: d.tSec, a: d.action });
+    out.push({ ...d, uid });
+  });
+  return out;
+}
+
+export function decisionText(d: PolicyDecision): string {
+  return `🤔 Jev: ${formatDist(d.probs)} → ${shortAction(d.action)}`;
+}
+
+export function DecisionBubbles() {
+  const activeRun = useSceneRun();
+  const clock = useSceneClock();
+  const show = useDrama((s) => s.showThinking);
+  const list = useMemo(() => thinkingDecisions(activeRun?.result.decisions ?? []), [activeRun]);
+  const [active, setActive] = useState<UiDecision[]>([]);
+  const prev = useRef<string>("");
+
+  useFrame(() => {
+    if (!list.length) return;
+    const t = clock.t;
+    const cur = list.filter((d) => d.tSec <= t && t - d.tSec < THINK_SEC).slice(-2);
+    const sig = cur.map((d) => d.uid).join(",");
+    if (sig !== prev.current) {
+      prev.current = sig;
+      setActive(cur);
+    }
+  });
+
+  if (!show || !activeRun) return null;
+  return (
+    <>
+      {active.map((d) => (
+        <ThoughtLive key={`think-${d.uid}`} d={d} />
+      ))}
+    </>
+  );
+}
+
+function ThoughtLive({ d }: { d: UiDecision }) {
+  const activeRun = useSceneRun();
+  const clock = useSceneClock();
+  const group = useRef<THREE.Group>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const camera = useThree((s) => s.camera);
+  const text = decisionText(d);
+  useFrame(() => {
+    if (!group.current || !activeRun) return;
+    const t = clock.t;
+    const [x, z] = actorXZ(activeRun.frames, d.actor, t, d);
+    group.current.position.set(x, CHAR_SCALE * 2.2, z);
+    if (!box.current) return;
+    const age = Math.max(0, t - d.tSec);
+    const pop = Math.min(1, age / 0.25);
+    const zoomK = Math.min(1.0, Math.max(0.7, 0.55 + 0.08 * (camera as THREE.OrthographicCamera).zoom));
+    box.current.style.opacity = String(Math.max(0, Math.min(1, age / 0.15, (THINK_SEC - age) / 0.4)));
+    // offset to the side so it does not cover beat bubbles above the same actor
+    box.current.style.transform = `translate(12px, -100%) translate(0, -46px) scale(${(pop * zoomK).toFixed(3)})`;
+  });
+  return (
+    <group ref={group}>
+      <Html zIndexRange={[21, 0]} style={{ pointerEvents: "none" }} wrapperClass="praesidium-thought">
+        <div
+          ref={box}
+          data-jev-thought=""
+          style={{ position: "absolute", left: 0, top: 0, opacity: 0, transformOrigin: "0% 100%", pointerEvents: "none" }}
+          title={d.situation}
+        >
+          <BubbleBody variant="thought" text={text} accent="#7c3aed" sev={1} />
+        </div>
+      </Html>
+    </group>
   );
 }
 

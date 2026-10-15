@@ -10,9 +10,32 @@ import { executeRun, replayStoredRun } from "@/lib/sim/runner";
 import { compareRuns } from "@/lib/sim/metrics";
 import { ablateSync, headlineDiff, type AblationResult, type Headline } from "@/lib/sim/compare";
 import { deepClone } from "@/lib/world/ids";
-import type { PraesidiumProject, StoredRun } from "@/lib/world/types";
+import type { PraesidiumProject, ScenarioConfig, StoredRun } from "@/lib/world/types";
+import { useDrama } from "@/lib/store/drama";
+import { dramaEnabled } from "@/lib/sim/drama";
+import { policyCacheKey } from "@/lib/sim/policy";
+import { getJevPolicy } from "@/lib/ai/jevClient";
 import { applyProposal, type Proposal } from "@/lib/ai/schema";
 import { makeId } from "@/lib/world/ids";
+
+/**
+ * Attach a TypeSafe Jev behaviour policy to the scenario BEFORE the run
+ * (cached per world + scenario; pre-baked table when offline; heuristics when
+ * nothing is available). The engine stays deterministic: it samples the
+ * table with its seeded rng.
+ */
+async function withJevPolicy(project: PraesidiumProject): Promise<ScenarioConfig> {
+  const sc = project.scenario;
+  if (!useDrama.getState().jevBehaviour || !dramaEnabled(sc)) {
+    const { jevPolicy: _drop, ...rest } = sc;
+    return rest as ScenarioConfig;
+  }
+  const key = policyCacheKey(project.projectId, sc);
+  if (sc.jevPolicy?.key === key) return sc;
+  const info = await getJevPolicy(project.projectId, sc, { preferPrebaked: project.source.kind === "demo" });
+  useDrama.getState().setPolicyInfo({ from: info.from, latencyMs: info.latencyMs, entries: info.policy ? Object.keys(info.policy.table).length : 0 });
+  return info.policy ? { ...sc, jevPolicy: info.policy } : sc;
+}
 
 /**
  * Run the baseline: computes and stores an immutable snapshot run
@@ -25,10 +48,11 @@ export async function runBaseline(): Promise<void> {
   if (project.world.roads.length === 0) {
     throw new Error("The neighborhood has no walkable roads or paths yet. Draw at least one path first.");
   }
-  const { stored, active } = executeRun(project.world, project.scenario, "baseline");
+  const scenario = await withJevPolicy(project);
+  const { stored, active } = executeRun(project.world, scenario, "baseline");
   useEditor.setState((st) => ({
     project: st.project
-      ? { ...st.project, baselineRun: stored, interventionRun: null, modifiedAt: new Date().toISOString() }
+      ? { ...st.project, scenario: { ...st.project.scenario, jevPolicy: scenario.jevPolicy }, baselineRun: stored, interventionRun: null, modifiedAt: new Date().toISOString() }
       : st.project,
     dirty: true,
     activeRun: active,
@@ -56,7 +80,8 @@ export async function runIntervention(): Promise<void> {
   if (project.world.roads.length === 0) {
     throw new Error("The neighborhood has no walkable roads or paths yet.");
   }
-  const scenario = { ...project.scenario, seed: project.baselineRun.seed };
+  // same seed AND same behaviour policy as the baseline → a fair same-night comparison
+  const scenario = { ...project.scenario, seed: project.baselineRun.seed, jevPolicy: project.baselineRun.scenario.jevPolicy };
   const { stored, active } = executeRun(project.world, scenario, "intervention", project.baselineRun.world);
   useEditor.setState((st) => ({
     project: st.project ? { ...st.project, interventionRun: stored, modifiedAt: new Date().toISOString() } : st.project,

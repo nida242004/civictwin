@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import type { ReactNode } from "react";
 import {
   Camera, MoonStar, Route, MapPinned, Boxes, PlayCircle, Scale,
-  Leaf, Users, ShieldCheck, Accessibility, Eye, Search, AudioLines, Cloud,
+  Leaf, Users, ShieldCheck, Accessibility, Eye, Search, AudioLines, Cloud, Zap,
 } from "lucide-react";
 
 export function Reveal({ children, className, delay = 0 }: { children: ReactNode; className?: string; delay?: number }) {
@@ -185,12 +185,13 @@ export function BuiltWith() {
     { icon: Search, t: "Search grounding", d: "Gemini + Google Search for real local prices and context." },
     { icon: AudioLines, t: "Gemini TTS", d: "Narrates the night and the results aloud." },
     { icon: Cloud, t: "Cloud Run", d: "Serverless backend, scales to zero between runs." },
+    { icon: Zap, t: "TypeSafe Jev", d: "TypeSafe Jev for instant agent judgments — how actors behave, quick picks in under a second." },
   ];
   return (
     <section id="tech" className="border-t border-white/[0.06] flex min-h-[100svh] flex-col justify-center pt-24 pb-16">
       <div className={wrap}>
         <Head k="Built with Gemini on Google Cloud" title="AI where it helps. Simulation where it counts." />
-        <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-5">
           {items.map((it, i) => (
             <Reveal key={it.t} delay={i * 0.05}>
               <it.icon className="h-5 w-5 text-slate-300" strokeWidth={1.6} />

@@ -14,7 +14,7 @@ import { BEAT_WINDOW_SEC, beatsOf, useDrama, type ActiveBeat } from "@/lib/store
 import type { ActorRef, IncidentBeat } from "@/lib/sim/incidents";
 import type { Frame } from "@/lib/sim/engine";
 import type { DramaFrame } from "@/lib/sim/incidents";
-import { BeatBubbles, BubbleBody } from "./bubbles";
+import { BeatBubbles, BubbleBody, DecisionBubbles } from "./bubbles";
 import { Html } from "@react-three/drei";
 import { CHAR_SCALE } from "./characters";
 import { useIsMainScene, useSceneCameras, useSceneClock, useSceneDrama, useSceneRun } from "./sceneSource";
@@ -407,6 +407,7 @@ export function DramaLayer() {
       <DramaDriver />
       <BeatFx />
       <BeatBubbles />
+      <DecisionBubbles />
       <PoliceLayer />
       {main && <FollowCam />}
     </group>

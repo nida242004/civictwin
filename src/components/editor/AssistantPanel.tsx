@@ -14,6 +14,7 @@ import { applyAiProposal, runIntervention } from "@/lib/run-actions";
 import { describeOps, type Proposal } from "@/lib/ai/schema";
 import { cn } from "@/lib/utils";
 import { useIntel } from "@/lib/ai/intelStore";
+import QuickPicks from "./QuickPicks";
 
 interface ProposeResponse {
   ok: boolean;
@@ -166,6 +167,13 @@ export default function AssistantPanel() {
               </div>
             )}
           </div>
+
+          <QuickPicks
+            onExplain={(m) => {
+              setMessage(m.slice(0, 600));
+              request(m);
+            }}
+          />
 
           {/* input */}
           <div>
