@@ -237,8 +237,14 @@ function BeatFx() {
 /* Police arrival (visual only): jeep + officers after caught/escaped  */
 /* ------------------------------------------------------------------ */
 
-const POLICE_DELAY = 4;
+// Caught: police come quickly to take custody. Escaped: they arrive later, to an
+// empty scene — they must never shout at a suspect who is already gone.
+const POLICE_DELAY = { caught: 4, escaped: 25 } as const;
 const POLICE_STAY = 30;
+const POLICE_LINE = {
+  caught: { text: "Police! You're under arrest.", variant: "burst" as const },
+  escaped: { text: "Police here… suspect already gone over the wall.", variant: "round" as const },
+};
 
 function Officer({ x, z, yaw }: { x: number; z: number; yaw: number }) {
   const s = CHAR_SCALE;
@@ -308,7 +314,8 @@ function PoliceArrival({ beat, route }: { beat: ActiveBeat; route: PolicePath })
   const light2 = useRef<THREE.MeshBasicMaterial>(null);
   const halo = useRef<THREE.Mesh>(null);
   const bubble = useRef<HTMLDivElement>(null);
-  const t0 = beat.tSec + POLICE_DELAY;
+  const outcome = beat.kind === "perp_caught" ? "caught" : "escaped";
+  const t0 = beat.tSec + POLICE_DELAY[outcome];
   const drive = Math.min(18, Math.max(5, route.len / POLICE_SPEED));
   const sceneClock = useSceneClock();
 
@@ -361,7 +368,7 @@ function PoliceArrival({ beat, route }: { beat: ActiveBeat; route: PolicePath })
       <group position={[-5, CHAR_SCALE * 2.3, 0.5]}>
         <Html zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
           <div ref={bubble} style={{ position: "absolute", left: 0, top: 0, opacity: 0, transformOrigin: "50% 100%", pointerEvents: "none" }}>
-            <BubbleBody variant="burst" text="Police! Nobody move!" accent="#2563eb" sev={2} />
+            <BubbleBody variant={POLICE_LINE[outcome].variant} text={POLICE_LINE[outcome].text} accent="#2563eb" sev={2} />
           </div>
         </Html>
       </group>

@@ -1049,7 +1049,7 @@ function placeAt(x: number, z: number) {
       s.addCamera(x, z);
       break;
     case "guard":
-      s.addGuard(x, z);
+      s.guardToolClick({ x, z }); // left-click extends the selected guard; right-click drops guards
       break;
     case "building":
       s.addBuilding(x, z);

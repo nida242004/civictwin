@@ -20,6 +20,8 @@ import { RoadsLayer, BuildingsLayer, FacilitiesLayer, StreetlightsLayer, Cameras
 import { AgentsLayer, EventsLayer, PlaybackTicker } from "./playback";
 import { SiteLayers, fitZoom, DEFAULT_ZOOM } from "./siteLayers";
 import { DramaLayer } from "./drama";
+import { PatrolRoutes, PatrolHUD } from "./patrolEditor";
+import { snapToWalkable } from "@/lib/world/patrol";
 
 /* ------------------------------------------------------------------ */
 
@@ -93,7 +95,9 @@ function InteractionPlane({
   onGroundDoubleClick,
   onGroundMove,
   onGroundUp,
+  onGroundRightClick,
 }: {
+  onGroundRightClick?: (p: Vec2) => void;
   onGroundPoint: (p: Vec2, e: ThreeEvent<MouseEvent>) => void;
   onGroundDoubleClick?: (p: Vec2, e: ThreeEvent<MouseEvent>) => void;
   onGroundMove: (p: Vec2) => void;
@@ -109,6 +113,13 @@ function InteractionPlane({
         e.stopPropagation();
         if (e.delta > 4) return; // camera drag, not a click
         onGroundPoint({ x: snap(e.point.x), z: snap(e.point.z) }, e);
+      }}
+      onContextMenu={(e) => {
+        // right press+release without movement (a right drag rotates the camera instead)
+        e.nativeEvent.preventDefault();
+        if (e.delta > 5) return;
+        e.stopPropagation();
+        onGroundRightClick?.({ x: snap(e.point.x), z: snap(e.point.z) });
       }}
       onDoubleClick={(e) => {
         e.stopPropagation();
@@ -259,7 +270,8 @@ function SceneContents() {
 
   const handleGroundDoubleClick = useCallback(() => {
     const s = store.getState();
-    if (s.tool === "road" && s.roadDraft.length >= 2) {
+    if (s.routeDraw) s.finishRouteDraw();
+    else if (s.tool === "road" && s.roadDraft.length >= 2) {
       s.commitRoad();
     }
   }, [store]);
@@ -287,6 +299,11 @@ function SceneContents() {
         s.setMoveMode(false);
         return;
       }
+      // patrol route drawing: every click adds a stop, snapped to the walkable network
+      if (s.routeDraw) {
+        s.appendWaypoint(s.routeDraw.guardId, snapToWalkable(s.project.world, lim));
+        return;
+      }
       switch (s.tool) {
         case "select":
           if (s.selection) s.select(null);
@@ -298,7 +315,8 @@ function SceneContents() {
           s.addCamera(lim.x, lim.z);
           break;
         case "guard":
-          s.addGuard(lim.x, lim.z);
+          // left-click extends the selected guard's route; guards are dropped with right-click
+          s.guardToolClick(lim);
           break;
         case "building":
           s.addBuilding(lim.x, lim.z);
@@ -328,10 +346,25 @@ function SceneContents() {
     [store]
   );
 
+  const handleGroundRightClick = useCallback(
+    (p: Vec2) => {
+      const s = store.getState();
+      if (!s.project || isLocked(s) || s.mode !== "edit" || s.tool !== "guard") return;
+      const w = s.project.world;
+      const lim = {
+        x: Math.max(-w.bounds.width / 2, Math.min(w.bounds.width / 2, p.x)),
+        z: Math.max(-w.bounds.depth / 2, Math.min(w.bounds.depth / 2, p.z)),
+      };
+      const sp = snapToWalkable(w, lim);
+      s.addGuard(sp.x, sp.z);
+    },
+    [store]
+  );
+
   const sceneTheme = useEditor((s) => s.sceneTheme) ?? "night";
 
   if (!project) return null;
-  const b = project.world.bounds;
+  const b =project.world.bounds;
   const theme = SCENE_THEMES[sceneTheme] ?? SCENE_THEMES.night;
 
   return (
@@ -376,7 +409,8 @@ function SceneContents() {
       <FacilitiesLayer facilities={project.world.facilities} showLabels={layers.labels} selectedId={selection?.kind === "facility" ? selection.id : null} />
       <StreetlightsLayer lights={project.world.streetlights} showPools={layers.lighting} selectedId={selection?.kind === "streetlight" ? selection.id : null} />
       <CamerasLayer cameras={project.world.cameras} showFov={layers.cctv} selectedId={selection?.kind === "camera" ? selection.id : null} />
-      <GuardsLayer guards={project.world.guards} showRoutes={layers.labels} selectedId={selection?.kind === "guard" ? selection.id : null} />
+      <GuardsLayer guards={project.world.guards} showRoutes={false} selectedId={selection?.kind === "guard" ? selection.id : null} />
+      <PatrolRoutes />
 
       <AgentsLayer />
       <DramaLayer />
@@ -386,6 +420,7 @@ function SceneContents() {
       <InteractionPlane
         onGroundPoint={handleGroundPoint}
         onGroundDoubleClick={handleGroundDoubleClick}
+        onGroundRightClick={handleGroundRightClick}
         onGroundMove={(p) => {
           const s = store.getState();
           if (s.dragState) {
@@ -794,6 +829,7 @@ export default function NeighborhoodCanvas() {
 
       {/* Road drawing HUD banner */}
       <RoadDrawingHUD />
+      <PatrolHUD />
 
       <SimulationLockBadge />
 

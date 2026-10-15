@@ -26,6 +26,7 @@ import { makeDemoProject, DEMO_PROJECT_ID, DEMO_NAME, LEGACY_DEMO_NAMES, isLegac
 import { makeBlankProject } from "@/lib/world/blank";
 import type { ActiveRun } from "@/lib/sim/runner";
 import { saveProject } from "@/lib/storage/projects";
+import { snapToWalkable, autoPatrol,appendRoutes, reverseRoute as reversePts, rotateRoute, halfLoopOffset } from "@/lib/world/patrol";
 
 export type Tool =
   | "select"
@@ -138,6 +139,29 @@ interface EditorState {
   addStreetlight: (x: number, z: number) => void;
   addCamera: (x: number, z: number) => void;
   addGuard: (x: number, z: number) => void;
+  /** Patrol-route editing (all undoable, blocked while a simulation is loaded). */
+  routeDraw: { guardId: string } | null;
+  waypointSel: number | null;
+  setWaypointSel: (i: number | null) => void;
+  startRouteDraw: (guardId: string) => void;
+  finishRouteDraw: () => void;
+  appendWaypoint: (guardId: string, p: { x: number; z: number }) => void;
+  insertWaypoint: (guardId: string, index: number, p: { x: number; z: number }) => void;
+  moveWaypoint: (guardId: string, index: number, p: { x: number; z: number }) => void;
+  removeWaypoint: (guardId: string, index: number) => void;
+  removeLastWaypoint: () => void;
+  clearRoute: (guardId: string) => void;
+  autoPatrolGuard: (guardId: string) => void;
+  /** Mix & match routes between guards (undoable, blocked while locked). */
+  copyRouteFrom: (guardId: string, sourceId: string) => void;
+  addRouteFrom: (guardId: string, sourceId: string) => void;
+  swapRoutes: (guardId: string, otherId: string) => void;
+  reverseRoute: (guardId: string) => void;
+  shareRoute: (guardId: string, sourceId: string) => void;
+  /** Transient on-canvas hint (auto-clears). */
+  guardToolClick: (p: { x: number; z: number }) => void;
+  canvasHint: string | null;
+  flashHint: (msg: string) => void;
   addBuilding: (x: number, z: number) => void;
   addFacility: (x: number, z: number) => void;
   moveObject: (sel: NonNullable<Selection>, x: number, z: number) => void;
@@ -287,7 +311,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (m === "edit" && isLocked(s)) return;
     if (m === "navigate") {
       if (s.dragState) get().endDrag();
-      set({ mode: "navigate", tool: "select", roadDraft: [], moveMode: false });
+      set({ mode: "navigate", tool: "select", roadDraft: [], moveMode: false, routeDraw: null, waypointSel: null });
     } else set({ mode: "edit" });
   },
   exitSimulation: () => {
@@ -297,10 +321,14 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setTool: (t) => {
     if (isLocked(get()) && t !== "select") return;
-    set({ tool: t, roadDraft: [], moveMode: false, ...(t !== "select" ? { mode: "edit" as const } : {}) });
+    set({ tool: t, roadDraft: [], moveMode: false, routeDraw: null, waypointSel: null, ...(t !== "select" ? { mode: "edit" as const } : {}) });
   },
   setFacilityType: (t) => set({ facilityType: t }),
-  select: (sel) => set({ selection: sel, tool: sel ? "select" : get().tool, moveMode: false }),
+  select: (sel) => {
+    const rd = get().routeDraw;
+    const keep = rd && sel?.kind === "guard" && sel.id === rd.guardId;
+    set({ selection: sel, tool: sel ? "select" : get().tool, moveMode: false, waypointSel: null, ...(keep ? {} : { routeDraw: null }) });
+  },
 
   beginDrag: (kind, id, offsetX, offsetZ) => {
     if (isLocked(get()) || get().mode !== "edit") return;
@@ -432,7 +460,166 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().mutateWorld((d) => {
       d.world.guards.push(g);
     });
-    set({ selection: { kind: "guard", id: g.id } });
+    set({ selection: { kind: "guard", id: g.id }, routeDraw: { guardId: g.id }, waypointSel: null });
+  },
+
+  routeDraw: null,
+  waypointSel: null,
+  setWaypointSel: (i) => set({ waypointSel: i }),
+
+  startRouteDraw: (guardId) => {
+    if (isLocked(get())) return;
+    set({ routeDraw: { guardId }, selection: { kind: "guard", id: guardId }, mode: "edit", waypointSel: null, moveMode: false });
+  },
+  finishRouteDraw: () => {
+    if (!get().routeDraw) return;
+    // Guard tool stays armed (and deselects) so the next right-click drops another guard.
+    if (get().tool === "guard") set({ routeDraw: null, selection: null, waypointSel: null });
+    else set({ routeDraw: null, tool: "select" });
+  },
+  guardToolClick: (p) => {
+    const s = get();
+    if (isLocked(s) || !s.project) return;
+    const id = s.routeDraw?.guardId ?? (s.selection?.kind === "guard" ? s.selection.id : null);
+    if (!id) {
+      get().flashHint("Right-click to drop a guard first");
+      return;
+    }
+    if (!s.routeDraw) get().startRouteDraw(id);
+    get().appendWaypoint(id, snapToWalkable(s.project.world, p));
+  },
+  canvasHint: null,
+  flashHint: (msg) => {
+    set({ canvasHint: msg });
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => set({ canvasHint: null }), 2600);
+  },
+  appendWaypoint: (guardId, p) => {
+    if (isLocked(get())) return;
+    const g = get().project?.world.guards.find((o) => o.id === guardId);
+    if (!g) return;
+    const last = g.waypoints[g.waypoints.length - 1];
+    if (last && Math.hypot(last.x - p.x, last.z - p.z) < 1.5) return; // double-click / duplicate
+    get().mutateWorld((d) => {
+      d.world.guards.find((o) => o.id === guardId)?.waypoints.push({ x: p.x, z: p.z });
+    });
+  },
+  insertWaypoint: (guardId, index, p) => {
+    if (isLocked(get())) return;
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o) o.waypoints.splice(Math.max(0, Math.min(index, o.waypoints.length)), 0, { x: p.x, z: p.z });
+    });
+    set({ waypointSel: Math.max(0, index) });
+  },
+  moveWaypoint: (guardId, index, p) => {
+    if (isLocked(get())) return;
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o && o.waypoints[index]) o.waypoints[index] = { x: p.x, z: p.z };
+    });
+  },
+  removeWaypoint: (guardId, index) => {
+    if (isLocked(get())) return;
+    const g = get().project?.world.guards.find((o) => o.id === guardId);
+    if (!g || g.waypoints.length <= 1 || !g.waypoints[index]) return;
+    get().mutateWorld((d) => {
+      d.world.guards.find((x) => x.id === guardId)?.waypoints.splice(index, 1);
+    });
+    set({ waypointSel: null });
+  },
+  removeLastWaypoint: () => {
+    const s = get();
+    const id = s.routeDraw?.guardId ?? (s.tool === "guard" && s.selection?.kind === "guard" ? s.selection.id : null);
+    if (!id) return;
+    const g = s.project?.world.guards.find((o) => o.id === id);
+    if (g) get().removeWaypoint(id, g.waypoints.length - 1);
+  },
+  copyRouteFrom: (guardId, sourceId) => {
+    const s = get();
+    if (isLocked(s) || guardId === sourceId) return;
+    const src = s.project?.world.guards.find((o) => o.id === sourceId);
+    if (!src || !src.waypoints.length) return;
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o) o.waypoints = src.waypoints.map((w) => ({ x: w.x, z: w.z }));
+    });
+    set({ waypointSel: null, routeDraw: null });
+  },
+  addRouteFrom: (guardId, sourceId) => {
+    const s = get();
+    if (isLocked(s) || guardId === sourceId) return;
+    const src = s.project?.world.guards.find((o) => o.id === sourceId);
+    const g = s.project?.world.guards.find((o) => o.id === guardId);
+    if (!src || !g || !src.waypoints.length) return;
+    const merged = appendRoutes(g.waypoints, src.waypoints);
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o) o.waypoints = merged;
+    });
+    set({ waypointSel: null, routeDraw: null });
+  },
+  swapRoutes: (guardId, otherId) => {
+    const s = get();
+    if (isLocked(s) || guardId === otherId) return;
+    const a = s.project?.world.guards.find((o) => o.id === guardId);
+    const b = s.project?.world.guards.find((o) => o.id === otherId);
+    if (!a || !b) return;
+    const wa = a.waypoints.map((w) => ({ x: w.x, z: w.z }));
+    const wb = b.waypoints.map((w) => ({ x: w.x, z: w.z }));
+    get().mutateWorld((d) => {
+      const oa = d.world.guards.find((x) => x.id === guardId);
+      const ob = d.world.guards.find((x) => x.id === otherId);
+      if (oa && ob) {
+        oa.waypoints = wb;
+        ob.waypoints = wa;
+      }
+    });
+    set({ waypointSel: null, routeDraw: null });
+  },
+  reverseRoute: (guardId) => {
+    const s = get();
+    if (isLocked(s)) return;
+    const g = s.project?.world.guards.find((o) => o.id === guardId);
+    if (!g || g.waypoints.length < 2) return;
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o) o.waypoints = reversePts(o.waypoints);
+    });
+    set({ waypointSel: null });
+  },
+  shareRoute: (guardId, sourceId) => {
+    const s = get();
+    if (isLocked(s) || guardId === sourceId) return;
+    const src = s.project?.world.guards.find((o) => o.id === sourceId);
+    if (!src || !src.waypoints.length) return;
+    const shared = rotateRoute(src.waypoints, halfLoopOffset(src.waypoints));
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o) o.waypoints = shared;
+    });
+    set({ waypointSel: null, routeDraw: null });
+  },
+  clearRoute: (guardId) => {
+    if (isLocked(get())) return;
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o && o.waypoints.length > 1) o.waypoints = [o.waypoints[0]];
+    });
+    set({ waypointSel: null });
+  },
+  autoPatrolGuard: (guardId) => {
+    const s = get();
+    if (isLocked(s) || !s.project) return;
+    const g = s.project.world.guards.find((o) => o.id === guardId);
+    if (!g || !g.waypoints.length) return;
+    const route = autoPatrol(s.project, g.waypoints[0]);
+    if (route.length < 2) return;
+    get().mutateWorld((d) => {
+      const o = d.world.guards.find((x) => x.id === guardId);
+      if (o) o.waypoints = route;
+    });
+    set({ waypointSel: null, routeDraw: null });
   },
 
   addBuilding: (x, z) => {
@@ -562,6 +749,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       dirty: true,
       selection: null,
       roadDraft: [],
+      routeDraw: null,
+      waypointSel: null,
       history: { past: s.history.past.slice(0, -1), future: [project, ...s.history.future].slice(0, HISTORY_LIMIT) },
     }));
     scheduleAutosave(get, set);
@@ -576,6 +765,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       project: next,
       dirty: true,
       selection: null,
+      routeDraw: null,
+      waypointSel: null,
       history: { past: [...s.history.past, project].slice(-HISTORY_LIMIT), future: s.history.future.slice(1) },
     }));
     scheduleAutosave(get, set);
@@ -619,7 +810,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     playbackClock.t = 0;
     set(
       run
-        ? { activeRun: run, runKind: kind, playing: true, displayT: 0, mode: "navigate", tool: "select", roadDraft: [], moveMode: false, dragState: null }
+        ? { activeRun: run, runKind: kind, playing: true, displayT: 0, mode: "navigate", tool: "select", roadDraft: [], moveMode: false, dragState: null, routeDraw: null, waypointSel: null }
         : { activeRun: run, runKind: kind, playing: false, displayT: 0 }
     );
   },
@@ -637,7 +828,8 @@ export const useEditor = create<EditorState>((set, get) => ({
 /* Autosave (debounced)                                                */
 /* ------------------------------------------------------------------ */
 
-let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let hintTimer: ReturnType<typeof setTimeout> | null = null;
+let autosaveTimer:ReturnType<typeof setTimeout> | null = null;
 
 function scheduleAutosave(
   get: () => EditorState,

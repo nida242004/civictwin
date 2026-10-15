@@ -84,16 +84,23 @@ export default function EditorShell() {
           break;
         case "delete":
         case "backspace":
-          if (s.selection) s.deleteSelected();
+          if ((s.routeDraw || (s.tool === "guard" && s.selection?.kind === "guard")) && e.key.toLowerCase() === "backspace") s.removeLastWaypoint();
+          else if (s.selection?.kind === "guard" && s.waypointSel !== null && s.mode === "edit") {
+            s.removeWaypoint(s.selection.id, s.waypointSel);
+          } else if (s.selection) s.deleteSelected();
           break;
         case "enter":
-          if (s.tool === "road" && s.roadDraft.length >= 2) s.commitRoad();
+          if (s.routeDraw) s.finishRouteDraw();
+          else if (s.tool === "guard" && s.selection?.kind === "guard") s.select(null);
+          else if (s.tool === "road" && s.roadDraft.length >= 2) s.commitRoad();
           break;
         case "e":
           if (!e.ctrlKey && !e.metaKey && !e.altKey) s.setMode(s.mode === "edit" ? "navigate" : "edit");
           break;
         case "escape":
-          if (s.roadDraft.length) s.cancelRoad();
+          if (s.tool === "guard" && (s.routeDraw || s.selection?.kind === "guard")) s.select(null);
+          else if (s.routeDraw) s.finishRouteDraw();
+          else if (s.roadDraft.length) s.cancelRoad();
           else if (s.mode === "edit") s.setMode("navigate");
           else if (s.selection) s.select(null);
           break;

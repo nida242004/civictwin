@@ -471,7 +471,7 @@ function handlePlacementAtPoint(p: { x: number; z: number }) {
       s.addCamera(p.x, p.z);
       break;
     case "guard":
-      s.addGuard(p.x, p.z);
+      s.guardToolClick(p); // left-click extends the selected guard; right-click drops guards
       break;
     case "building":
       s.addBuilding(p.x, p.z);

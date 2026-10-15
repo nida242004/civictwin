@@ -55,13 +55,14 @@ export async function POST(req: NextRequest) {
     const { data, model } = await Promise.race([
       deadline,
       (async () => {
+        // newest vision model first; each attempt already rotates across all keys
         try {
-          return await attempt(["gemini-3-flash-preview"], "low");
+          return await attempt(["gemini-3.8-flash"], "low");
         } catch {
           try {
-            return await attempt(["gemini-3-flash-preview"]); // retry (next key) without thinking override
+            return await attempt(["gemini-3.5-flash"], "low");
           } catch {
-            return await attempt(["gemini-3.1-flash-lite"]);
+            return await attempt(["gemini-3-flash-preview", "gemini-3.1-flash-lite"]);
           }
         }
       })(),

@@ -8,6 +8,7 @@
 import { useEditor } from "@/lib/store/editor";
 import { Button } from "@/components/ui/button";
 import { nearestRoutableNode, buildNavGraph } from "@/lib/world/graph";
+import { legBetween, polylineLength, routeLength } from "@/lib/world/patrol";
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 function Field({
@@ -27,6 +28,56 @@ function Field({
   );
 }
 
+/** Mix & match routes between guards: use / add / swap / share / reverse. */
+function RouteMixer({ guardId, locked }: { guardId: string; locked: boolean }) {
+  const world = useEditor((s) => s.project?.world);
+  const copyRouteFrom = useEditor((s) => s.copyRouteFrom);
+  const addRouteFrom = useEditor((s) => s.addRouteFrom);
+  const swapRoutes = useEditor((s) => s.swapRoutes);
+  const shareRoute = useEditor((s) => s.shareRoute);
+  const reverseRoute = useEditor((s) => s.reverseRoute);
+  const others = useMemo(() => {
+    if (!world) return [];
+    return world.guards
+      .filter((g) => g.id !== guardId && g.waypoints.length > 0)
+      .map((g) => ({
+        id: g.id,
+        label: `${g.name} · ${g.waypoints.length} stop${g.waypoints.length === 1 ? "" : "s"} · ${Math.round(routeLength(world, g.waypoints))} m`,
+      }));
+  }, [world, guardId]);
+  const me = world?.guards.find((g) => g.id === guardId);
+  const sel = (label: string, fn: (id: string) => void) => (
+    <select
+      key={label}
+      value=""
+      disabled={locked || !others.length}
+      onChange={(e) => e.target.value && fn(e.target.value)}
+      className="h-7 w-full rounded border border-[#dcd6c8] bg-white px-1 text-[11px] disabled:opacity-50"
+      title={locked ? "Locked while a simulation is loaded" : label}
+    >
+      <option value="">{label}</option>
+      {others.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+  return (
+    <div className="my-1 space-y-1 rounded border border-[#e3ded4] bg-[#faf8f4] p-2">
+      <div className="text-[10px] uppercase tracking-wide text-[#8a8272]">Mix &amp; match routes</div>
+      {sel("Use route from…", (id) => copyRouteFrom(guardId, id))}
+      {sel("Add route from…", (id) => addRouteFrom(guardId, id))}
+      {sel("Swap routes with…", (id) => swapRoutes(guardId, id))}
+      {sel("Share route with… (offset start)", (id) => shareRoute(guardId, id))}
+      <Button size="sm" variant="outline" className="h-7 text-[11px]" disabled={locked || (me?.waypoints.length ?? 0) < 2} onClick={() => reverseRoute(guardId)}>
+        Reverse direction
+      </Button>
+      {!others.length && <div className="text-[10px] text-[#8a8272]">Add another guard to reuse its route.</div>}
+    </div>
+  );
+}
+
 function num(v: number): string {
   return String(Math.round(v * 100) / 100);
 }
@@ -40,6 +91,11 @@ export default function Inspector() {
   const setMoveMode = useEditor((s) => s.setMoveMode);
   const setTool = useEditor((s) => s.setTool);
   const locked = useEditor((s) => s.activeRun !== null);
+  const routeDraw = useEditor((s) => s.routeDraw);
+  const startRouteDraw = useEditor((s) => s.startRouteDraw);
+  const finishRouteDraw = useEditor((s) => s.finishRouteDraw);
+  const autoPatrolGuard = useEditor((s) => s.autoPatrolGuard);
+  const clearRoute = useEditor((s) => s.clearRoute);
 
   const graphInfo = useMemo(() => {
     if (!project) return null;
@@ -75,7 +131,10 @@ export default function Inspector() {
   const found = findSelected();
   const isConnected =
     found && graphInfo && found.kind !== "road"
-      ? nearestRoutableNode(graphInfo.graph, found.obj.x as number, found.obj.z as number) !== null
+      ? (() => {
+          const at = found.kind === "guard" ? (found.obj.waypoints?.[0] ?? { x: 0, z: 0 }) : found.obj;
+          return nearestRoutableNode(graphInfo.graph, at.x as number, at.z as number) !== null;
+        })()
       : null;
 
   return (
@@ -339,6 +398,57 @@ export default function Inspector() {
                     className="h-1 w-full cursor-pointer appearance-none rounded bg-[#ddd6c8] accent-[#2e7d5b]"
                   />
                 </Field>
+                <label className="flex items-center gap-1.5 py-1 text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={found.obj.active}
+                    onChange={(e) =>
+                      mutateWorld((d) => {
+                        const o = d.world.guards.find((x) => x.id === selection.id);
+                        if (o) o.active = e.target.checked;
+                      })
+                    }
+                    className="h-3.5 w-3.5 accent-[#2e7d5b]"
+                  />
+                  Active this night
+                </label>
+                {(() => {
+                  const wps = found.obj.waypoints as { x: number; z: number }[];
+                  let len = 0;
+                  if (graphInfo && wps.length > 1) {
+                    for (let i = 0; i < wps.length; i++) {
+                      len += polylineLength(legBetween(graphInfo.graph, wps[i], wps[(i + 1) % wps.length]));
+                    }
+                  }
+                  const secs = found.obj.speed > 0 ? len / found.obj.speed : 0;
+                  return (
+                    <div className="my-1 rounded border border-[#e3ded4] bg-white p-2 text-[11px] text-[#5c6470]">
+                      <div className="flex justify-between"><span>Waypoints</span><span className="font-medium text-[#1d2430]">{wps.length}</span></div>
+                      <div className="flex justify-between"><span>Patrol length (loop)</span><span className="font-medium text-[#1d2430]">{Math.round(len)} m</span></div>
+                      <div className="flex justify-between"><span>Loop time @ {found.obj.speed} m/s</span><span className="font-medium text-[#1d2430]">{secs >= 60 ? `${Math.floor(secs / 60)} min ${Math.round(secs % 60)} s` : `${Math.round(secs)} s`}</span></div>
+                    </div>
+                  );
+                })()}
+                <div className="flex flex-wrap gap-1.5 py-1">
+                  <Button size="sm" variant="outline" className="h-7 text-[11px]" disabled={locked} onClick={() => startRouteDraw(selection.id)}>
+                    Extend route
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-[11px]" disabled={locked} onClick={() => autoPatrolGuard(selection.id)}>
+                    Auto patrol
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-[11px]" disabled={locked || found.obj.waypoints.length < 2} onClick={() => clearRoute(selection.id)}>
+                    Clear route
+                  </Button>
+                  {routeDraw?.guardId === selection.id && (
+                    <Button size="sm" className="h-7 bg-[#2e7d5b] text-[11px] text-white hover:bg-[#276c4f]" onClick={finishRouteDraw}>
+                      Finish route
+                    </Button>
+                  )}
+                </div>
+                <RouteMixer guardId={selection.id} locked={locked} />
+                <p className="py-0.5 text-[10px] leading-snug text-[#8a8272]">
+                  Guard tool (G): right-click drops a new guard, left-click adds stops to the selected guard · Enter to finish · Backspace removes the last stop · Esc deselects. Drag a numbered handle to move it, click the route to insert a stop, right-click or Delete to remove one.
+                </p>
                 <Field label={`Waypoints — ${found.obj.waypoints.length}`} hint="Patrol loops through these points in order">
                   <div className="space-y-1">
                     {found.obj.waypoints.map((w, i) => (
@@ -382,10 +492,6 @@ export default function Inspector() {
                     ))}
                   </div>
                 </Field>
-                <p className="py-1 text-[10px] leading-snug text-[#8a8272]">
-                  Tip: click “Move” then click the map to relocate the nearest waypoint, or use the
-                  planning assistant to redesign the route.
-                </p>
               </>
             )}
 
