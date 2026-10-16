@@ -44,7 +44,16 @@ export type VisionLayout = z.infer<typeof VisionLayoutSchema>;
 
 export const VISION_SYSTEM = `You are an urban-planning vision analyst helping a Resident Welfare Association (RWA) build a security digital twin of their residential society from a top-down satellite image. Be precise about positions. Only report features you can actually see. Never identify individuals. Output JSON only.`;
 
-export function buildVisionPrompt(args: { widthM: number; depthM: number; placeName?: string; world?: World | null }): string {
+export function buildVisionPrompt(args: {
+  widthM: number;
+  depthM: number;
+  placeName?: string;
+  world?: World | null;
+  /** A street-map render of the same bbox is attached as the second image. */
+  hasStreetMap?: boolean;
+  /** User-drawn selection outline in the u,v grid (rotated rectangle or polygon). */
+  selection?: [number, number][] | null;
+}): string {
   const { widthM: W, depthM: D } = args;
   const toU = (x: number) => Math.round((x / W + 0.5) * 1000);
   const toV = (zz: number) => Math.round((zz / D + 0.5) * 1000);
@@ -52,10 +61,20 @@ export function buildVisionPrompt(args: { widthM: number; depthM: number; placeN
   const osmB = (w?.buildings ?? []).slice(0, 120).map((b) => `[${toU(b.x)},${toV(b.z)} ${Math.round(b.width)}x${Math.round(b.depth)}m${b.floors ? ` ${b.floors}fl` : ""}]`);
   const osmR = (w?.roads ?? []).slice(0, 60).map((r) => `${r.category}${r.name ? ` "${r.name}"` : ""}: ${r.points.filter((_, i, a) => i === 0 || i === a.length - 1 || i % 3 === 0).map((p) => `${toU(p.x)},${toV(p.z)}`).join(" ")}`);
   const osmP = (w?.facilities ?? []).filter((f) => f.type === "park").slice(0, 20).map((f) => `${f.name ?? "park"} @${toU(f.x)},${toV(f.z)}`);
-  return `Satellite image (north up) of ${args.placeName ? `"${args.placeName}"` : "a residential area in India"}. It covers ${Math.round(W)} m (east-west) × ${Math.round(D)} m (north-south), ≈${(W / 1000).toFixed(3)} m per grid unit horizontally.
+  const sel = args.selection && args.selection.length >= 3 ? args.selection : null;
+  const imagesNote = args.hasStreetMap
+    ? `You get TWO images of exactly the same area, north up, pixel-aligned (same u,v grid):
+ IMAGE 1 = satellite photo — the source of truth for what physically exists: compound walls, gates, guard booths, building footprints, tree cover, parking, unlit/secluded spots.
+ IMAGE 2 = street map render — use it to NAME roads and gates (e.g. "Gate on 5th Main Rd"), to tell public roads from internal driveways, and to locate landmarks. Its building/road shapes are approximate; never add a building that is only on the map and not visible in the satellite photo.`
+    : `The image is a satellite photo (north up).`;
+  const selNote = sel
+    ? `\nSELECTION: the user outlined the society with this polygon (u,v): ${sel.map(([u, v]) => `${u},${v}`).join(" ")}. Analyse ONLY what lies inside it (gates/walls may sit on its edge); ignore everything outside. The compound boundary usually follows this outline closely.\n`
+    : "";
+  return `${imagesNote}
+Place: ${args.placeName ? `"${args.placeName}"` : "a residential area in India"}. The area covers ${Math.round(W)} m (east-west) × ${Math.round(D)} m (north-south), ≈${(W / 1000).toFixed(3)} m per grid unit horizontally.
 
 COORDINATES: use a normalized grid u,v in 0..1000 — u = left→right (west→east), v = top→bottom (north→south). Sizes (widthM, depthM) are in METERS; rotationDeg is the clockwise rotation of the footprint's long axis from east.
-
+${selNote}
 ALREADY MAPPED in OpenStreetMap (do NOT repeat these; add only what OSM is missing):
 Buildings (${w?.buildings.length ?? 0}): ${osmB.join(" ") || "none"}
 Roads (${w?.roads.length ?? 0}):
@@ -67,7 +86,7 @@ TASK — analyse the society / gated community that occupies most of the image a
  "societyType": one of "gated_highrise" | "gated_lowrise" | "plotted_colony" | "villa_enclave" | "mixed_street" | "commercial" | "other",
  "description": 2-3 sentences: layout, density, approximate tower/house count, how it is entered, notable security-relevant traits (perimeter, open edges, vegetation),
  "boundary": [[u,v],...] polyline of the compound wall / society perimeter (clockwise, 4-40 points; [] if not a walled compound),
- "gates": [{"u","v","kind":"main"|"service"|"pedestrian","name"?}] — entry points on the boundary where internal roads meet outside roads,
+ "gates": [{"u","v","kind":"main"|"service"|"pedestrian","name"?}] — entry points on the boundary where internal roads meet outside roads${args.hasStreetMap ? " (name them after the outside road from IMAGE 2 when legible)" : ""},
  "buildings": [{"u","v","widthM","depthM","rotationDeg","floors","category"}] — buildings visible but NOT in the OSM list above (estimate floors from shadow length/roof type: towers 10-30, apartments 4-8, houses 1-3),
  "roads": [{"points":[[u,v],...],"kind":"road"|"path"}] — internal roads/driveways/footpaths missing from OSM,
  "openAreas": [{"u","v","widthM","depthM","name"?}] — parks, lawns, playgrounds, clubhouse grounds,

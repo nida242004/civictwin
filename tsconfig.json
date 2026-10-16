@@ -39,6 +39,12 @@
     ".next-prod/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "src/lib/db.ts",
+    "examples",
+    "scripts",
+    "mini-services",
+    "download",
+    "screenshots"
   ]
 }

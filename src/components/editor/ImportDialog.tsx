@@ -15,10 +15,23 @@ import { useEditor } from "@/lib/store/editor";
 import type { PraesidiumProject, ProjectGeo, World } from "@/lib/world/types";
 import { defaultScenario } from "@/lib/world/types";
 import { makeId } from "@/lib/world/ids";
-import type { Bbox, MapProvider } from "./MapPicker";
+import type { BaseLayer } from "./MapPicker";
 import { proceduralSociety } from "@/lib/geo/procedural";
 import { prepareImportedWorld } from "@/lib/geo/siteSetup";
 import { parseProject } from "@/lib/world/serialize";
+import { postApi } from "@/lib/api/client";
+import {
+  clipWorldToPolygon,
+  isAxisAligned,
+  rectFromBbox,
+  ringAreaM2,
+  ringToLocal,
+  ringToUV,
+  selectionBbox,
+  selectionRing,
+  type Bbox,
+  type Selection,
+} from "@/lib/geo/selection";
 
 const SAMPLE_URL = "/samples/prestige-shantiniketan.json";
 
@@ -35,7 +48,8 @@ interface SearchResult {
 }
 
 type StepState = "pending" | "active" | "done" | "skipped" | "failed";
-const STEPS = ["Fetching map data", "Capturing satellite", "Gemini analysing layout", "Building 3D twin"] as const;
+const STEPS = ["Fetching map data", "Capturing satellite + street map", "Gemini analysing layout", "Building 3D twin"] as const;
+const MIN_AREA_M2 = 3000;
 
 interface BuildResult {
   world: World;
@@ -67,12 +81,7 @@ function societyBox(r: SearchResult): Bbox {
   return [lat - hl, lat + hl, lon - hw, lon + hw];
 }
 
-async function postJson(url: string, body: unknown) {
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const json = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
-  if (!json.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-  return json.data;
-}
+const postJson = (url: string, body: unknown) => postApi<any>(url, body);
 
 export default function ImportDialog() {
   const open = useEditor((s) => s.importOpen);
@@ -85,13 +94,17 @@ export default function ImportDialog() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [placeName, setPlaceName] = useState("");
   const [focus, setFocus] = useState<{ lat: number; lng: number; bbox: Bbox; seq: number } | null>(null);
-  const [bbox, setBbox] = useState<Bbox | null>(null);
-  const [provider, setProvider] = useState<MapProvider | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [baseLayer, setBaseLayer] = useState<BaseLayer | null>(null);
+  const bbox: Bbox | null = selection ? selectionBbox(selection) : null;
 
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<StepState[]>(STEPS.map(() => "pending"));
   const [stepNotes, setStepNotes] = useState<string[]>(STEPS.map(() => ""));
   const [satImage, setSatImage] = useState<string | null>(null);
+  const [streetImage, setStreetImage] = useState<string | null>(null);
+  const [previewStreet, setPreviewStreet] = useState(false);
+  const [runOutline, setRunOutline] = useState<[number, number][] | null>(null);
   const [description, setDescription] = useState<string | null>(null);
   const [societyType, setSocietyType] = useState<string | null>(null);
   const [result, setResult] = useState<BuildResult | null>(null);
@@ -103,7 +116,7 @@ export default function ImportDialog() {
     setResults([]);
     setPlaceName("");
     setFocus(null);
-    setBbox(null);
+    setSelection(null);
     resetRun();
   };
   const resetRun = () => {
@@ -111,6 +124,9 @@ export default function ImportDialog() {
     setSteps(STEPS.map(() => "pending"));
     setStepNotes(STEPS.map(() => ""));
     setSatImage(null);
+    setStreetImage(null);
+    setPreviewStreet(false);
+    setRunOutline(null);
     setDescription(null);
     setSocietyType(null);
     setResult(null);
@@ -136,15 +152,20 @@ export default function ImportDialog() {
     const b = societyBox(r);
     setPlaceName(r.displayName.split(",")[0]);
     setResults([]);
-    setBbox(b);
+    setSelection(rectFromBbox(b));
     setFocus({ lat: r.lat, lng: r.lon, bbox: b, seq: Date.now() });
   };
 
   const span = bbox ? spanM(bbox) : null;
-  const spanOk = span ? span.w >= MIN_SPAN && span.d >= MIN_SPAN && span.w <= MAX_SPAN && span.d <= MAX_SPAN : false;
+  const ring = selection ? selectionRing(selection) : null;
+  const areaM2 = ring ? ringAreaM2(ring) : 0;
+  const spanOk = span
+    ? span.w >= MIN_SPAN && span.d >= MIN_SPAN && span.w <= MAX_SPAN && span.d <= MAX_SPAN && areaM2 >= MIN_AREA_M2
+    : false;
+  const needsClip = selection ? !isAxisAligned(selection) : false;
 
   const build = async () => {
-    if (!bbox || !spanOk) return;
+    if (!bbox || !selection || !spanOk) return;
     resetRun();
     setRunning(true);
     const set = (i: number, st: StepState, note = "") => {
@@ -154,6 +175,9 @@ export default function ImportDialog() {
     const [south, north, west, east] = bbox;
     const sp = spanM(bbox);
     const notes: string[] = [];
+    // rotated rectangle / polygon: capture the bounding bbox, then tell Gemini the outline and clip to it
+    const outlineUV = needsClip ? ringToUV(selectionRing(selection), bbox) : null;
+    setRunOutline(outlineUV);
     set(0, "active");
     set(1, "active");
 
@@ -167,14 +191,15 @@ export default function ImportDialog() {
         notes.push(`OpenStreetMap fetch failed (${err.message}); the layout is AI-inferred only.`);
         return null;
       });
-    const satP = postJson("/api/geo/satellite", { south, north, west, east })
+    const satP = postJson("/api/geo/satellite", { south, north, west, east, street: true })
       .then((d) => {
         setSatImage(d.image);
-        set(1, "done", `${d.width}×${d.height}px · ${d.provider === "google" ? "Google" : "Esri"} z${d.zoom}`);
-        return d as { image: string; attribution: string; provider: string };
+        if (d.streetImage) setStreetImage(d.streetImage);
+        set(1, "done", `${d.width}×${d.height}px · ${d.provider === "google" ? "Google" : "Esri"} z${d.zoom}${d.streetImage ? " · + street map" : " · street map unavailable"}`);
+        return d as { image: string; attribution: string; provider: string; streetImage?: string; streetAttribution?: string };
       })
       .catch((err: Error) => {
-        set(1, "failed", err.message);
+        set(1, "failed", `${err.message} — continuing without imagery`);
         return null;
       });
     const [osm, sat] = await Promise.all([osmP, satP]);
@@ -198,7 +223,14 @@ export default function ImportDialog() {
     if (sat) {
       set(2, "active");
       try {
-        const v = await postJson("/api/ai/vision-layout", { image: sat.image, bounds: baseWorld.bounds, world: osm?.world ?? null, placeName });
+        const v = await postJson("/api/ai/vision-layout", {
+          image: sat.image,
+          streetImage: sat.streetImage ?? null,
+          bounds: baseWorld.bounds,
+          world: osm?.world ?? null,
+          placeName,
+          polygon: outlineUV,
+        });
         world = v.world;
         added = v.added;
         model = v.model;
@@ -206,17 +238,24 @@ export default function ImportDialog() {
         summary = v.description;
         setSocietyType(v.societyType);
         setDescription(v.description);
-        set(2, "done", `+${v.added.buildings} buildings · ${v.added.gates} gates · ${v.added.walls ? "boundary wall" : "no wall"} · ${v.added.areas} zones (${v.model})`);
+        set(2, "done", `+${v.added.buildings} buildings · ${v.added.gates} gates · ${v.added.walls ? "boundary wall" : "no wall"} · ${v.added.areas} zones (${v.model}${v.usedStreetMap ? ", satellite + street map" : ""})`);
         notes.push("Walls, gates, dark zones and extra buildings were inferred by Gemini from satellite imagery — verify them on the ground.");
       } catch (err) {
-        set(2, "failed", "Gemini unavailable — importing map data only");
-        notes.push(`Gemini layout analysis failed (${err instanceof Error ? err.message : "error"}).`);
+        const msg = err instanceof Error ? err.message : "Gemini is unavailable.";
+        set(2, "failed", `${msg} Importing map data only.`);
+        notes.push(`Gemini layout analysis was skipped: ${msg}`);
       }
     } else {
       set(2, "skipped", "No satellite image to analyse");
     }
 
     set(3, "active");
+    if (needsClip) {
+      const poly = ringToLocal(selectionRing(selection), bbox, baseWorld.bounds.width, baseWorld.bounds.depth);
+      const clipped = clipWorldToPolygon(world, poly);
+      world = clipped.world;
+      if (clipped.removed) notes.push(`${clipped.removed} mapped item(s) outside your ${selection.kind === "polygon" ? "outline" : "rotated selection"} were left out.`);
+    }
     if (!world.roads.length && !world.buildings.length && !world.site?.walls.length) {
       // never dead-end: estimated layout aligned to the bbox (and the satellite ground)
       world = proceduralSociety(baseWorld.bounds, bbox);
@@ -227,7 +266,9 @@ export default function ImportDialog() {
     const prepared = prepareImportedWorld(world, Math.round(Math.abs(south * 1e4 + west * 1e4)));
     world = prepared.world;
     notes.push(...prepared.notes);
-    const attribution = [osm?.attribution ?? null, sat?.attribution ?? null, model ? `Layout inference: ${model}` : null].filter(Boolean).join(" · ");
+    const attribution = [osm?.attribution ?? null, sat?.attribution ?? null, sat?.streetImage ? sat.streetAttribution ?? null : null, model ? `Layout inference: ${model}` : null]
+      .filter(Boolean)
+      .join(" · ");
     setResult({
       world,
       name: placeName || "Imported Society",
@@ -306,8 +347,9 @@ export default function ImportDialog() {
         <DialogHeader>
           <DialogTitle className="text-[#1d2430]">Pick your society on the map</DialogTitle>
           <DialogDescription className="text-xs text-[#5c6470]">
-            Search, then drag the yellow rectangle around your society or gated community (~150–600 m). Gemini reads the
-            satellite image to add compound walls, gates, missing buildings and likely dark zones on top of OpenStreetMap.
+            Search, then fit the yellow rectangle around your society (~150–600 m) — rotate it, or switch to Polygon for an
+            irregular compound. Gemini reads the satellite photo (plus a street map for road and gate names) to add compound
+            walls, gates, missing buildings and likely dark zones on top of OpenStreetMap.
           </DialogDescription>
         </DialogHeader>
 
@@ -340,23 +382,32 @@ export default function ImportDialog() {
             {searchError && <div className="rounded-md border border-[#e6c98a] bg-[#fdf6e7] px-3 py-1.5 text-xs text-[#7a5d1e]">{searchError}</div>}
 
             <div className="h-[420px]">
-              <MapPicker focus={focus} bbox={bbox} onBbox={setBbox} onProvider={setProvider} />
+              <MapPicker focus={focus} selection={selection} onSelection={setSelection} onBaseLayer={setBaseLayer} />
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-[11px] text-[#5c6470]">
-                {span ? (
+                {span && selection ? (
                   <>
                     <span className={spanOk ? "text-[#1d2430]" : "text-[#a33]"}>
-                      Selection {Math.round(span.w)} × {Math.round(span.d)} m
+                      {selection.kind === "rect"
+                        ? `Selection ${Math.round(selection.widthM)} × ${Math.round(selection.depthM)} m${needsClip ? ` · rotated ${Math.round(selection.rotationDeg)}°` : ""}`
+                        : `Outline ${selection.ring.length} points · ${(areaM2 / 10000).toFixed(1)} ha`}
                     </span>
-                    {!spanOk && <span className="text-[#a33]"> — keep each side between {MIN_SPAN} and {MAX_SPAN} m</span>}
+                    {needsClip && <span className="text-[#8a8272]"> · captures {Math.round(span.w)} × {Math.round(span.d)} m</span>}
+                    {!spanOk && (
+                      <span className="text-[#a33]">
+                        {areaM2 < MIN_AREA_M2 && span.w >= MIN_SPAN && span.d >= MIN_SPAN
+                          ? " — the outline is too small"
+                          : ` — keep the captured area between ${MIN_SPAN} and ${MAX_SPAN} m per side`}
+                      </span>
+                    )}
                     {placeName && <span className="text-[#8a8272]"> · {placeName}</span>}
                   </>
                 ) : (
                   "Search for a place to start."
                 )}
-                {provider && <span className="ml-2 text-[9px] text-[#a39b8b]">map: {provider === "google" ? "Google" : "Esri (fallback)"}</span>}
+                {baseLayer && <span className="ml-2 text-[9px] text-[#a39b8b]">Esri {baseLayer} view</span>}
               </div>
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" className="h-8 text-xs" disabled={sampleLoading} onClick={loadSample} title="Pre-built twin of Prestige Shantiniketan, Bengaluru (cached satellite + Gemini analysis)">
@@ -436,8 +487,30 @@ export default function ImportDialog() {
 
             <div>
               {satImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={satImage} alt="Captured satellite view of the selected area" className="w-full rounded-md border border-[#dcd6c8]" />
+                <div>
+                  <div className="relative">
+                    <img
+                      src={previewStreet && streetImage ? streetImage : satImage}
+                      alt={previewStreet ? "Street map of the selected area" : "Captured satellite view of the selected area"}
+                      className="block w-full rounded-md border border-[#dcd6c8]"
+                    />
+                    {runOutline && (
+                      <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
+                        <polygon points={runOutline.map(([u, v]) => `${u},${v}`).join(" ")} fill="none" stroke="#f5c24b" strokeWidth={6} vectorEffect="non-scaling-stroke" strokeDasharray="6 4" />
+                      </svg>
+                    )}
+                  </div>
+                  {streetImage && (
+                    <div className="mt-1 flex overflow-hidden rounded border border-[#dcd6c8] text-[10px]">
+                      <button className={`flex-1 py-0.5 ${!previewStreet ? "bg-[#1d2430] text-white" : "bg-white text-[#1d2430]"}`} onClick={() => setPreviewStreet(false)}>
+                        Satellite
+                      </button>
+                      <button className={`flex-1 py-0.5 ${previewStreet ? "bg-[#1d2430] text-white" : "bg-white text-[#1d2430]"}`} onClick={() => setPreviewStreet(true)}>
+                        Street map
+                      </button>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="grid aspect-square place-items-center rounded-md border border-dashed border-[#dcd6c8] text-[11px] text-[#a39b8b]">
                   {running ? "Capturing satellite…" : "No satellite image"}

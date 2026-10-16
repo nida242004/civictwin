@@ -229,7 +229,10 @@ export default function WelcomeScreen() {
                   <ArrowRight strokeWidth={1.75} className="h-4 w-4" />
                 </button>
               </div>
-              <p style={{ "--d": "0.44s" } as React.CSSProperties} className="hero-fade mt-5 text-xs text-slate-500">
+              <p style={{ "--d": "0.4s" } as React.CSSProperties} className="hero-fade mt-3 max-w-md text-pretty text-xs italic leading-relaxed text-slate-400/80">
+                * We suggest starting with the demo society (Launch live demo) &mdash; it&rsquo;s pre-loaded and runs instantly.
+              </p>
+              <p style={{ "--d": "0.44s" } as React.CSSProperties} className="hero-fade mt-3 text-xs text-slate-500">
                 Free · no login · runs in your browser · synthetic agents, no real people tracked
               </p>
             </div>
@@ -263,6 +266,9 @@ export default function WelcomeScreen() {
                   Blank canvas
                 </button>
               </div>
+              <p className="mx-auto mt-4 max-w-md text-pretty text-xs italic leading-relaxed text-slate-400/80">
+                * We suggest starting with the demo society (Launch live demo) &mdash; it&rsquo;s pre-loaded and runs instantly.
+              </p>
               <div className="mt-5 text-sm text-slate-400">
                 <button onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1.5 underline-offset-4 transition hover:text-white hover:underline">
                   <Upload strokeWidth={1.5} className="h-3.5 w-3.5" />

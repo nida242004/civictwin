@@ -77,7 +77,7 @@ export default function TimelineBar() {
   const currentEvent = visibleEvents.filter((e) => displayT - e.tSec < 20).at(-1);
 
   return (
-    <div className="border-t border-[#e3ded4] bg-white">
+    <div className="border-t border-[#e3ded4] bg-white" data-tour="timeline">
       {/* main bar */}
       <div className="flex h-14 items-center gap-3 px-3">
         {/* transport */}
@@ -232,7 +232,7 @@ export default function TimelineBar() {
           >
             Compare
           </Button>
-          <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setAssistantOpen(true)}>
+          <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setAssistantOpen(true)} data-tour="assistant">
             ✦ Assistant
           </Button>
         </div>

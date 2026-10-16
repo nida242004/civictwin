@@ -138,7 +138,7 @@ export default function Inspector() {
       : null;
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-l border-[#e3ded4] bg-[#faf8f4]">
+    <aside className="flex w-64 shrink-0 flex-col overflow-y-auto border-l border-[#e3ded4] bg-[#faf8f4]" data-tour="inspector">
       <div className="border-b border-[#e9e4d8] px-3 py-2.5">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-[#8a8272]">Inspector</div>
       </div>

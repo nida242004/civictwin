@@ -4,6 +4,8 @@ import { validateProposal, type Proposal } from "@/lib/ai/schema";
 import { deterministicRecommendation } from "@/lib/ai/recommend";
 import { OUTCOME_GLOSSARY, outcomeLabel } from "@/lib/sim/labels";
 import type { PraesidiumProject, StoredRun } from "@/lib/world/types";
+import { z } from "zod";
+import { friendlyUpstreamError, rateLimit, readJson, withTimeout } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -17,20 +19,38 @@ export const maxDuration = 60;
  * validated against an explicit allowlist before being returned; nothing
  * is applied without explicit user approval in the UI.
  */
-export async function POST(req: NextRequest) {
-  let body: { project?: unknown; baselineRun?: unknown; message?: unknown; localIntel?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
+const arr = z.array(z.unknown()).max(5000);
+const Body = z.object({
+  project: z.object({
+    name: z.string().max(200).optional(),
+    world: z
+      .object({
+        bounds: z.object({ width: z.number(), depth: z.number() }),
+        roads: arr,
+        buildings: arr,
+        facilities: arr,
+        streetlights: arr,
+        cameras: arr,
+        guards: arr,
+      })
+      .passthrough(),
+    scenario: z.object({ id: z.string() }).passthrough(),
+  }),
+  baselineRun: z.object({ metrics: z.record(z.string(), z.unknown()), events: z.array(z.unknown()).max(5000) }).passthrough().nullish(),
+  message: z.string().optional(),
+  localIntel: z.unknown().optional(),
+});
 
-  const project = body.project as PraesidiumProject | undefined;
-  if (!project || !project.world || !project.scenario) {
-    return NextResponse.json({ ok: false, error: "Missing project data." }, { status: 400 });
-  }
+export async function POST(req: NextRequest) {
+  const limited = rateLimit(req, "ai/propose", 12);
+  if (limited) return limited;
+  const parsed = await readJson(req, 4_000_000, Body);
+  if (!parsed.ok) return parsed.res;
+  const body = parsed.data;
+
+  const project = body.project as unknown as PraesidiumProject;
   const message = typeof body.message === "string" ? body.message.slice(0, 1500) : "";
-  const baselineRun = (body.baselineRun as StoredRun | null) ?? null;
+  const baselineRun = (body.baselineRun as unknown as StoredRun | null) ?? null;
 
   const geminiKey = geminiConfigured();
 
@@ -51,16 +71,17 @@ export async function POST(req: NextRequest) {
       });
     } catch (err) {
       // fall through to next provider, noting the failure
-      const msg = err instanceof Error ? err.message : "unknown error";
+      console.warn("[ai/propose] Gemini failed:", err instanceof Error ? err.message.slice(0, 200) : err);
       if (process.env.AI_STRICT === "1") {
-        return NextResponse.json({ ok: false, error: `Gemini request failed: ${msg}` }, { status: 502 });
+        const f = friendlyUpstreamError(err, "Gemini");
+        return NextResponse.json({ ok: false, error: f.message, rateLimited: f.rateLimited }, { status: f.status });
       }
     }
   }
 
-  // z-ai SDK provider
+  // z-ai SDK provider (only usable where its config file exists; bounded so a hang never blocks the fallback)
   try {
-    const raw = await callZai(project, baselineRun, message, body.localIntel);
+    const raw = await withTimeout(callZai(project, baselineRun, message, body.localIntel), 20000, "z-ai");
     const result = validateProposal(raw, project);
     if (result.ok) {
       return NextResponse.json({

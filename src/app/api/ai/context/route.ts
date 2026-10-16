@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGemini, geminiConfigured, parseJsonLoose } from "@/lib/ai/gemini";
 import type { IncidentMix, LocalIntel } from "@/lib/ai/context";
+import { z } from "zod";
+import { friendlyUpstreamError, rateLimit, readJson } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -72,18 +74,18 @@ function normalize(raw: any, sources: { title: string; uri: string }[], placeNam
   };
 }
 
+const Body = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+  placeName: z.unknown().optional(),
+  societyType: z.unknown().optional(),
+});
+
 export async function POST(req: NextRequest) {
-  let body: { lat?: unknown; lng?: unknown; placeName?: unknown; societyType?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
-  const lat = Number(body.lat);
-  const lng = Number(body.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-    return NextResponse.json({ ok: false, error: "lat/lng required." }, { status: 400 });
-  }
+  const parsed = await readJson(req, 8192, Body);
+  if (!parsed.ok) return parsed.res;
+  const body = parsed.data;
+  const { lat, lng } = body;
   const placeName = str(body.placeName, 120) || `${lat.toFixed(3)}, ${lng.toFixed(3)}`;
   const societyType = str(body.societyType, 60) || "residential society";
   const key = `${lat.toFixed(2)},${lng.toFixed(2)}`;
@@ -93,8 +95,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, data: { ...hit.data, cached: true } });
   }
   if (!geminiConfigured()) {
-    return NextResponse.json({ ok: false, error: "No Gemini key configured." }, { status: 503 });
+    return NextResponse.json(
+      { ok: false, error: "Local safety intel needs Gemini, which is not configured on this server. The simulation works fine without it." },
+      { status: 503 }
+    );
   }
+  const limited = rateLimit(req, "ai/context", 8);
+  if (limited) return limited;
 
   const prompt = `Locality: ${placeName} (lat ${lat.toFixed(4)}, lng ${lng.toFixed(4)}). Site type: ${societyType}. Today: ${new Date().toISOString().slice(0, 10)}.
 
@@ -146,9 +153,8 @@ sourceIdx = 0-based index into the grounding sources list you used (omit/null if
     CACHE.set(key, { at: Date.now() - (groundingNote ? TTL_MS - 2 * 60 * 1000 : 0), data });
     return NextResponse.json({ ok: true, data });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: `Local intel failed: ${err instanceof Error ? err.message : "unknown"}` },
-      { status: 502 }
-    );
+    console.warn("[ai/context] failed:", err instanceof Error ? err.message.slice(0, 200) : err);
+    const f = friendlyUpstreamError(err, "Gemini");
+    return NextResponse.json({ ok: false, error: `Local intel unavailable: ${f.message}`, rateLimited: f.rateLimited }, { status: f.status });
   }
 }

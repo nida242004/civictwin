@@ -33,8 +33,8 @@ const FACILITY_TYPES: FacilityType[] = [
 function Row({ label, children, title }: { label: string; children: React.ReactNode; title?: string }) {
   return (
     <div className="flex items-center justify-between gap-2 py-1" title={title}>
-      <span className="w-28 shrink-0 text-[11px] text-[#5c6470]">{label}</span>
-      <div className="flex-1">{children}</div>
+      <span className="w-[84px] shrink-0 text-[11px] leading-tight text-[#5c6470]">{label}</span>
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }
@@ -55,7 +55,7 @@ function NumInput({
   suffix?: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex min-w-0 items-center gap-1.5">
       <input
         type="range"
         min={min}
@@ -63,9 +63,9 @@ function NumInput({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="h-1 flex-1 cursor-pointer appearance-none rounded bg-[#ddd6c8] accent-[#2e7d5b]"
+        className="h-1 w-full min-w-0 flex-1 cursor-pointer appearance-none rounded bg-[#ddd6c8] accent-[#2e7d5b]"
       />
-      <span className="w-14 shrink-0 text-right font-mono text-[11px] text-[#1d2430]">
+      <span className="w-[52px] shrink-0 whitespace-nowrap text-right font-mono text-[10px] text-[#1d2430]">
         {value}
         {suffix ? ` ${suffix}` : ""}
       </span>
@@ -97,7 +97,7 @@ export default function ToolsSidebar() {
   if (!scenario || !world) return null;
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-[#e3ded4] bg-[#faf8f4]">
+    <aside className="flex w-60 shrink-0 flex-col overflow-y-auto border-r border-[#e3ded4] bg-[#faf8f4]" data-tour="tools">
       {/* tools */}
       <div className="border-b border-[#e9e4d8] p-3">
         <div className="mb-2 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-[#8a8272]">

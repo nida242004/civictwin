@@ -27,6 +27,8 @@ export interface GeminiRequest {
   /** Override the model chain. */
   models?: string[];
   timeoutMs?: number;
+  /** Overall budget across all key/model retries (default max(60 s, 2.5 × timeoutMs)). */
+  budgetMs?: number;
   /** Gemini 3 thinking level (lower = faster). Omitted when unset. */
   thinkingLevel?: "minimal" | "low" | "medium" | "high";
 }
@@ -85,8 +87,14 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResponse> {
   if (req.googleSearch) body.tools = [{ google_search: {} }];
 
   let lastError: Error | null = null;
-  for (const model of models) {
+  const t0 = Date.now();
+  const budget = req.budgetMs ?? Math.max(60000, (req.timeoutMs ?? 45000) * 2.5);
+  outer: for (const model of models) {
     for (let attempt = 0; attempt < keys.length; attempt++) {
+      if (Date.now() - t0 > budget) {
+        lastError = new Error(`Gemini timeout: overall budget of ${Math.round(budget / 1000)} s exceeded`);
+        break outer;
+      }
       const key = keys[cursor++ % keys.length];
       try {
         const res = await fetch(
@@ -120,6 +128,11 @@ export async function callGemini(req: GeminiRequest): Promise<GeminiResponse> {
         return { text, model, sources };
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
+        // a timed-out model is usually slow for every key — move on to the next model
+        if (/timeout|abort/i.test(`${lastError.name} ${lastError.message}`)) {
+          lastError = new Error(`Gemini timeout on ${model}`);
+          break;
+        }
       }
     }
   }

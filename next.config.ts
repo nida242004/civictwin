@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // no floating dev badge in screenshots / video captures
+  devIndicators: false,
   // browsers still probe /favicon.ico; serve the SVG shield instead of a 404
   async rewrites() {
     return [{ source: "/favicon.ico", destination: "/logo.svg" }];

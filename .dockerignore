@@ -1,12 +1,27 @@
+# secrets — never in the image (set at runtime on Cloud Run)
+.env*
+.z-ai-config
+
+# deps / build outputs (rebuilt inside the image)
 node_modules
 .next
-.env*
+.next-prod
+*.tsbuildinfo
+
+# dev-only folders & media (keep the image small)
+.git
+.claude
 screenshots
 download
 db
 tests
+examples
+scripts
+mini-services
+prisma
 .zscripts
+*.pdf
 *.log
+*.pid
 dev.pid
-
-.next-prod
+Caddyfile

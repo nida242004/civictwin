@@ -1,32 +1,50 @@
 import { NextRequest, NextResponse } from "next/server";
-import { callGeminiJson, geminiConfigured } from "@/lib/ai/gemini";
+import { z } from "zod";
+import { callGeminiJson, geminiConfigured, type GeminiPart } from "@/lib/ai/gemini";
 import { buildVisionPrompt, mergeVisionLayout, VISION_SYSTEM, VisionLayoutSchema } from "@/lib/geo/visionLayout";
 import { parseProject } from "@/lib/world/serialize";
 import { downscaleJpeg } from "@/lib/geo/satellite";
+import { friendlyUpstreamError, rateLimit, readJson, withTimeout } from "@/lib/api/http";
 import type { World } from "@/lib/world/types";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 export const maxDuration = 240;
+
+const DATA_URL = /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/;
+const MAX_IMAGE_B64 = 4_000_000;
+
+const Body = z.object({
+  image: z.string().max(MAX_IMAGE_B64 + 64).regex(DATA_URL, "expected a JPEG/PNG data URL"),
+  streetImage: z.string().max(MAX_IMAGE_B64 + 64).regex(DATA_URL).nullish(),
+  bounds: z.object({ width: z.coerce.number().gt(20).lt(3000), depth: z.coerce.number().gt(20).lt(3000) }),
+  world: z.unknown().optional(),
+  placeName: z.string().max(400).optional(),
+  /** Selection outline in the image's u,v grid (0..1000). */
+  polygon: z
+    .array(z.tuple([z.coerce.number().min(-50).max(1050), z.coerce.number().min(-50).max(1050)]))
+    .min(3)
+    .max(60)
+    .nullish(),
+});
 
 /**
  * POST /api/ai/vision-layout
- * body: { image: "data:image/jpeg;base64,…", bounds: { width, depth } (meters), world?: World (OSM, bbox-centered), placeName? }
- * â†’ { ok, data: { world (merged), added, societyType, description, model } }
+ * body: { image: satellite data URL, streetImage?: street-map data URL (same bbox/size), bounds: { width, depth } (m),
+ *         world?: World (OSM, bbox-centered), placeName?, polygon?: [u,v][] }
+ * → { ok, data: { world (merged), added, societyType, description, model, usedStreetMap } }
  */
 export async function POST(req: NextRequest) {
   if (!geminiConfigured()) return NextResponse.json({ ok: false, error: "Gemini is not configured on this server." }, { status: 503 });
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
-  const m = /^data:(image\/(?:jpeg|png));base64,(.+)$/.exec(typeof body.image === "string" ? body.image : "");
-  if (!m || m[2].length > 4_000_000) return NextResponse.json({ ok: false, error: "Missing or oversized satellite image." }, { status: 400 });
-  const bounds = body.bounds as { width?: unknown; depth?: unknown } | undefined;
-  const W = Number(bounds?.width);
-  const D = Number(bounds?.depth);
-  if (!(W > 20 && D > 20 && W < 3000 && D < 3000)) return NextResponse.json({ ok: false, error: "Invalid bounds." }, { status: 400 });
+  const limited = rateLimit(req, "ai/vision-layout", 6);
+  if (limited) return limited;
+  const parsedBody = await readJson(req, 12_000_000, Body);
+  if (!parsedBody.ok) return parsedBody.res;
+  const body = parsedBody.data;
+  const sat = DATA_URL.exec(body.image)!;
+  const street = body.streetImage ? DATA_URL.exec(body.streetImage) : null;
+  const W = body.bounds.width;
+  const D = body.bounds.depth;
 
   // normalize the incoming OSM world through the project validator (never trust client JSON)
   let base: World = { bounds: { width: W, depth: D }, roads: [], buildings: [], facilities: [], streetlights: [], cameras: [], guards: [] };
@@ -34,16 +52,21 @@ export async function POST(req: NextRequest) {
     const parsed = parseProject({ schemaVersion: 1, world: body.world });
     if (parsed.ok && parsed.project) base = { ...parsed.project.world, bounds: { width: W, depth: D } };
   }
-  const placeName = typeof body.placeName === "string" ? body.placeName.slice(0, 120) : undefined;
+  const placeName = body.placeName?.slice(0, 120);
+  const polygon = body.polygon ? body.polygon.map(([u, v]) => [Math.round(u), Math.round(v)] as [number, number]) : null;
 
   try {
-    // smaller image + low thinking keeps this call ~10-25 s; overall deadline stays under the platform limit
-    const small = (await downscaleJpeg(Buffer.from(m[2], "base64"), 768)).toString("base64");
-    const prompt = buildVisionPrompt({ widthM: W, depthM: D, placeName, world: base });
+    // smaller images + low thinking keep this call ~10-25 s; overall deadline stays under the platform limit
+    const small = (await downscaleJpeg(Buffer.from(sat[2], "base64"), 768)).toString("base64");
+    const streetSmall = street ? await downscaleJpeg(Buffer.from(street[2], "base64"), 768).then((b) => b.toString("base64")).catch(() => null) : null;
+    const prompt = buildVisionPrompt({ widthM: W, depthM: D, placeName, world: base, hasStreetMap: !!streetSmall, selection: polygon });
+    const parts: GeminiPart[] = [{ text: "IMAGE 1 (satellite):" }, { inlineData: { mimeType: "image/jpeg", data: small } }];
+    if (streetSmall) parts.push({ text: "IMAGE 2 (street map, same area):" }, { inlineData: { mimeType: "image/jpeg", data: streetSmall } });
+    parts.push({ text: prompt });
     const attempt = (models: string[], thinkingLevel?: "low") =>
       callGeminiJson<unknown>({
         system: VISION_SYSTEM,
-        parts: [{ inlineData: { mimeType: "image/jpeg", data: small } }, { text: prompt }],
+        parts,
         json: true,
         temperature: 0.2,
         maxOutputTokens: 8192,
@@ -51,9 +74,7 @@ export async function POST(req: NextRequest) {
         models,
         thinkingLevel,
       });
-    const deadline = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("analysis deadline exceeded")), 150000));
-    const { data, model } = await Promise.race([
-      deadline,
+    const { data, model } = await withTimeout(
       (async () => {
         // newest vision model first; each attempt already rotates across all keys
         try {
@@ -66,14 +87,18 @@ export async function POST(req: NextRequest) {
           }
         }
       })(),
-    ]);
+      150000,
+      "analysis deadline"
+    );
     const layout = VisionLayoutSchema.parse(data ?? {});
     const { world, added } = mergeVisionLayout(base, layout);
-    return NextResponse.json({ ok: true, data: { world, added, societyType: layout.societyType, description: layout.description, model } });
+    return NextResponse.json({
+      ok: true,
+      data: { world, added, societyType: layout.societyType, description: layout.description, model, usedStreetMap: !!streetSmall },
+    });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: `Gemini layout analysis failed: ${err instanceof Error ? err.message.slice(0, 200) : "unknown error"}` },
-      { status: 502 }
-    );
+    const f = friendlyUpstreamError(err, "Gemini");
+    console.warn("[ai/vision-layout] failed:", err instanceof Error ? err.message.slice(0, 200) : err);
+    return NextResponse.json({ ok: false, error: f.message, rateLimited: f.rateLimited }, { status: f.status });
   }
 }

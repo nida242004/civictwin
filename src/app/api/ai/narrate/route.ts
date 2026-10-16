@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGemini, geminiConfigured, parseJsonLoose } from "@/lib/ai/gemini";
 import type { IncidentBeat } from "@/lib/sim/incidents";
+import { rateLimit, readJson } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -16,13 +17,13 @@ interface Body {
 }
 
 export async function POST(req: NextRequest) {
-  let body: Body;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
-  const beats = (Array.isArray(body.beats) ? body.beats : []).slice(0, 40);
+  const parsed = await readJson<Body>(req, 256_000);
+  if (!parsed.ok) return parsed.res;
+  const body = parsed.data;
+  const beats = (Array.isArray(body.beats) ? body.beats : [])
+    .slice(0, 40)
+    .filter((b) => b && typeof b === "object" && typeof b.line === "string")
+    .map((b) => ({ ...b, line: b.line.slice(0, 200) }));
   if (!beats.length) return NextResponse.json({ ok: false, error: "No beats." }, { status: 400 });
   const lang = body.lang === "hinglish" ? "hinglish" : "en";
 
@@ -33,7 +34,8 @@ export async function POST(req: NextRequest) {
   const original = (): NextResponse =>
     NextResponse.json({ ok: true, data: { ...toOut(beats, fallback.lines, fallback.debriefs), provider: "rules" } });
 
-  if (!geminiConfigured()) return original();
+  // no key, or this client is calling too often: keep the deterministic lines (never an error for captions)
+  if (!geminiConfigured() || rateLimit(req, "ai/narrate", 12)) return original();
 
   const compact = beats.map((b, i) => ({
     i,

@@ -22,6 +22,8 @@ import LocalIntelPanel from "./LocalIntelPanel";
 import { useEditor } from "@/lib/store/editor";
 import { cn } from "@/lib/utils";
 import { useAutoIntel } from "@/lib/ai/intelLoader";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { EditorTour, HelpDialog, MobileNote } from "./EditorHelp";
 
 export default function EditorShell() {
   useAutoIntel();
@@ -139,8 +141,10 @@ export default function EditorShell() {
           </button>
         )}
 
-        <main className="relative min-w-0 flex-1">
-          <NeighborhoodCanvas />
+        <main className="relative min-w-0 flex-1" data-tour="canvas">
+          <ErrorBoundary variant="canvas">
+            <NeighborhoodCanvas />
+          </ErrorBoundary>
           {/* sidebar collapse */}
           <button
             onClick={() => setScenarioPanel(!showScenarioPanel)}
@@ -167,6 +171,9 @@ export default function EditorShell() {
       <ImportDialog />
       <AssistantPanel />
       <LocalIntelPanel />
+      <HelpDialog />
+      <EditorTour />
+      <MobileNote />
     </div>
   );
 }

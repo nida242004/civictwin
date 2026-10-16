@@ -60,8 +60,63 @@ async function finish(img: SharpNs.Sharp, w: number, h: number) {
   return { jpeg, width: ow, height: oh };
 }
 
+const ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+/** Esri World Street Map — keyless basemap tiles with roads + labels (attribution required). */
+const ESRI_STREET = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+
 async function captureEsri(s: number, n: number, w: number, e: number): Promise<SatelliteCapture> {
-  let z = 19;
+  const out = await captureTiles(ESRI_IMAGERY, s, n, w, e, 19, "#4a5148");
+  return { ...out, provider: "esri", attribution: "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community" };
+}
+
+export interface StreetCapture {
+  jpeg: Buffer;
+  width: number;
+  height: number;
+  zoom: number;
+  attribution: string;
+}
+
+/**
+ * Street-map render (roads, names, landmarks) of exactly the same bbox, resized
+ * to match the satellite image so both share one u,v grid. Street tiles top out
+ * around z18 in most of India, so we cap there and upscale.
+ */
+export async function captureStreetMap(s: number, n: number, w: number, e: number, width: number, height: number): Promise<StreetCapture> {
+  // `blankTile=false` makes Esri 404 instead of serving "Map data not yet available" placeholders,
+  // so we can find the deepest zoom that really has data here (often z17 in Indian cities).
+  const tpl = `${ESRI_STREET}?blankTile=false`;
+  const cLat = (s + n) / 2;
+  const cLon = (w + e) / 2;
+  let maxZoom = 18;
+  for (; maxZoom > 15; maxZoom--) {
+    const url = tpl
+      .replace("{z}", String(maxZoom))
+      .replace("{y}", String(Math.floor(latToPx(cLat, maxZoom) / TILE)))
+      .replace("{x}", String(Math.floor(lonToPx(cLon, maxZoom) / TILE)));
+    const ok = await fetchBuf(url, 6000).then(
+      () => true,
+      () => false
+    );
+    if (ok) break;
+  }
+  const out = await captureTiles(tpl, s, n, w, e, maxZoom, "#f2efe9", { width, height }, 0.6);
+  return { ...out, attribution: "Street map © Esri, HERE, Garmin, © OpenStreetMap contributors" };
+}
+
+async function captureTiles(
+  template: string,
+  s: number,
+  n: number,
+  w: number,
+  e: number,
+  maxZoom: number,
+  background: string,
+  size?: { width: number; height: number },
+  /** Minimum fraction of tiles that must load (otherwise the capture is useless). */
+  minCoverage = 0
+): Promise<{ jpeg: Buffer; width: number; height: number; zoom: number }> {
+  let z = maxZoom;
   for (; z > 14; z--) {
     const tx = Math.floor(lonToPx(e, z) / TILE) - Math.floor(lonToPx(w, z) / TILE) + 1;
     const ty = Math.floor(latToPx(s, z) / TILE) - Math.floor(latToPx(n, z) / TILE) + 1;
@@ -78,7 +133,7 @@ async function captureEsri(s: number, n: number, w: number, e: number): Promise<
   const jobs: Promise<{ input: Buffer; left: number; top: number } | null>[] = [];
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
-      const url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${ty}/${tx}`;
+      const url = template.replace("{z}", String(z)).replace("{y}", String(ty)).replace("{x}", String(tx));
       jobs.push(
         fetchBuf(url)
           .then((input) => ({ input, left: (tx - tx0) * TILE, top: (ty - ty0) * TILE }))
@@ -87,10 +142,10 @@ async function captureEsri(s: number, n: number, w: number, e: number): Promise<
     }
   }
   const tiles = (await Promise.all(jobs)).filter((t): t is NonNullable<typeof t> => t !== null);
-  if (!tiles.length) throw new Error("Esri imagery tiles could not be fetched");
+  if (!tiles.length || tiles.length < jobs.length * minCoverage) throw new Error("map tiles could not be fetched");
   const mosaicW = (tx1 - tx0 + 1) * TILE;
   const mosaicH = (ty1 - ty0 + 1) * TILE;
-  const mosaic = await sharp({ create: { width: mosaicW, height: mosaicH, channels: 3, background: "#4a5148" } })
+  const mosaic = await sharp({ create: { width: mosaicW, height: mosaicH, channels: 3, background } })
     .composite(tiles)
     .png()
     .toBuffer();
@@ -98,8 +153,13 @@ async function captureEsri(s: number, n: number, w: number, e: number): Promise<
   const top = Math.max(0, Math.floor(y0 - ty0 * TILE));
   const cw = Math.max(1, Math.min(mosaicW - left, Math.round(x1 - x0)));
   const ch = Math.max(1, Math.min(mosaicH - top, Math.round(y1 - y0)));
-  const out = await finish(sharp(mosaic).extract({ left, top, width: cw, height: ch }), cw, ch);
-  return { ...out, zoom: z, provider: "esri", attribution: "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community" };
+  const crop = sharp(mosaic).extract({ left, top, width: cw, height: ch });
+  if (size) {
+    const jpeg = await crop.resize(size.width, size.height, { fit: "fill" }).jpeg({ quality: 75, mozjpeg: true }).toBuffer();
+    return { jpeg, width: size.width, height: size.height, zoom: z };
+  }
+  const out = await finish(crop, cw, ch);
+  return { ...out, zoom: z };
 }
 
 async function captureGoogle(s: number, n: number, w: number, e: number, key: string): Promise<SatelliteCapture> {
@@ -122,13 +182,17 @@ async function captureGoogle(s: number, n: number, w: number, e: number, key: st
   return { ...out, zoom: z, provider: "google", attribution: "Imagery © Google" };
 }
 
+let googleBackoffUntil = 0;
+
 export async function captureSatellite(s: number, n: number, w: number, e: number): Promise<SatelliteCapture> {
-  const key = process.env.GOOGLE_MAPS_API_KEY || process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  if (key) {
+  // runtime-only server key (a NEXT_PUBLIC_* reference here would be inlined into the build output)
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  if (key && Date.now() > googleBackoffUntil) {
     try {
       return await captureGoogle(s, n, w, e, key);
     } catch {
-      // billing disabled / quota / network — fall through to Esri
+      // billing disabled / quota / network — fall through to Esri and stop retrying Google for a while
+      googleBackoffUntil = Date.now() + 10 * 60 * 1000;
     }
   }
   return captureEsri(s, n, w, e);

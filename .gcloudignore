@@ -1,0 +1,26 @@
+# Upload filter for `gcloud run deploy --source .` (Cloud Build).
+# Without this file gcloud falls back to .gitignore, which ignores *.webp and
+# would drop public/hero/*.webp from the build. Keep in sync with .dockerignore.
+.gcloudignore
+.env*
+.z-ai-config
+node_modules
+.next
+.next-prod
+*.tsbuildinfo
+.git
+.claude
+screenshots
+download
+db
+tests
+examples
+scripts
+mini-services
+prisma
+.zscripts
+*.pdf
+*.log
+*.pid
+dev.pid
+Caddyfile

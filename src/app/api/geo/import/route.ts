@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchOsmFeatures, validateBbox } from "@/lib/geo/osm";
 import { convertOsmToWorld } from "@/lib/geo/convert";
+import { friendlyUpstreamError, rateLimit, readJson } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -10,12 +11,11 @@ export const maxDuration = 60;
  * them into the internal world model. Bounded by max area + feature caps.
  */
 export async function POST(req: NextRequest) {
-  let body: { south?: unknown; north?: unknown; west?: unknown; east?: unknown; name?: unknown; fixToBbox?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
+  const limited = rateLimit(req, "geo/import", 12);
+  if (limited) return limited;
+  const parsed = await readJson<{ south?: unknown; north?: unknown; west?: unknown; east?: unknown; name?: unknown; fixToBbox?: unknown }>(req, 4096);
+  if (!parsed.ok) return parsed.res;
+  const body = parsed.data;
 
   const s = Number(body.south);
   const n = Number(body.north);
@@ -53,7 +53,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("[geo/import] failed:", msg);
-    return NextResponse.json({ ok: false, error: msg }, { status: 502 });
+    console.error("[geo/import] failed:", msg.slice(0, 300));
+    const f = friendlyUpstreamError(err, "OpenStreetMap");
+    return NextResponse.json({ ok: false, error: f.message, rateLimited: f.rateLimited }, { status: f.status });
   }
 }

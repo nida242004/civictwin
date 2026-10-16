@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { judge, jevConfigured, type JevQuestion } from "@/lib/ai/typesafe";
 import type { CompactIntel } from "@/lib/ai/context";
 import { candidateBrief, rankValue, type Candidate, type CandidateScore } from "@/lib/ai/quickpicks";
+import { friendlyUpstreamError, rateLimit, readJson } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 20;
@@ -22,12 +23,11 @@ const IMPACT_LEVELS = [
  */
 export async function POST(req: NextRequest) {
   if (!jevConfigured()) return NextResponse.json({ ok: false, error: "TypeSafe Jev is not configured." }, { status: 503 });
-  let body: { candidates?: Candidate[]; context?: unknown; local?: CompactIntel | null };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
-  }
+  const limited = rateLimit(req, "ai/jev/quickpicks", 30);
+  if (limited) return limited;
+  const parsed = await readJson<{ candidates?: Candidate[]; context?: unknown; local?: CompactIntel | null }>(req, 256_000);
+  if (!parsed.ok) return parsed.res;
+  const body = parsed.data;
   const cands = (Array.isArray(body.candidates) ? body.candidates : []).slice(0, 30);
   if (!cands.length) return NextResponse.json({ ok: false, error: "No candidates." }, { status: 400 });
 
@@ -75,6 +75,8 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ ok: true, data: { scores, latencyMs: r.latencyMs, model: r.model, questions: Object.keys(questions).length } });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: `Jev request failed: ${e instanceof Error ? e.message : "unknown"}` }, { status: 502 });
+    console.warn("[ai/jev/quickpicks] failed:", e instanceof Error ? e.message.slice(0, 200) : e);
+    const f = friendlyUpstreamError(e, "TypeSafe Jev");
+    return NextResponse.json({ ok: false, error: f.message, rateLimited: f.rateLimited }, { status: f.status });
   }
 }

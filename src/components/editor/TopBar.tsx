@@ -14,6 +14,7 @@ import { runIntervention, runBaseline, prepareReportData } from "@/lib/run-actio
 import { useToast } from "@/hooks/use-toast";
 import { useIntel } from "@/lib/ai/intelStore";
 import { useNarration, useNarrationDriver } from "@/lib/captions/narrate";
+import { useHelp } from "./EditorHelp";
 
 export default function TopBar() {
   const project = useEditor((s) => s.project);
@@ -76,7 +77,7 @@ export default function TopBar() {
 
   return (
     <header className="flex h-14 items-center gap-2 border-b border-[#e3ded4] bg-white px-3">
-      <button onClick={openWelcome} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-[#f1ede4]" title="Back to welcome">
+      <button onClick={openWelcome} className="flex shrink-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-[#f1ede4]" title="Back to welcome">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo.svg" alt="" width={28} height={28} className="h-7 w-7" />
         <span className="hidden text-sm font-bold tracking-tight sm:inline">Praesidium</span>
@@ -87,22 +88,25 @@ export default function TopBar() {
       <input
         value={project.name}
         onChange={(e) => renameProject(e.target.value.slice(0, 80))}
-        className="w-40 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-medium hover:border-[#dcd6c8] focus:border-[#2e7d5b] focus:outline-none sm:w-56"
+        className="w-40 min-w-0 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-medium hover:border-[#dcd6c8] focus:border-[#2e7d5b] focus:outline-none 2xl:w-56"
         title="Project name"
         aria-label="Project name"
       />
 
       {/* save status */}
-      <span className="hidden items-center gap-1.5 text-xs text-[#8a8272] md:flex">
+      <span
+        className="hidden shrink-0 items-center gap-1.5 whitespace-nowrap text-xs text-[#8a8272] md:flex"
+        title={saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved locally on this device"}
+      >
         {saving ? (
           <>Saving…</>
         ) : dirty ? (
           <>
-            <span className="h-1.5 w-1.5 rounded-full bg-[#b98a2f]" /> Unsaved changes
+            <span className="h-1.5 w-1.5 rounded-full bg-[#b98a2f]" /> <span className="hidden min-[1440px]:inline">Unsaved changes</span>
           </>
         ) : (
           <>
-            <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d5b]" /> Saved locally
+            <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d5b]" /> <span className="hidden min-[1440px]:inline">Saved locally</span>
           </>
         )}
       </span>
@@ -115,6 +119,14 @@ export default function TopBar() {
       <Button variant="ghost" size="sm" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)">
         ↷
       </Button>
+      <button
+        onClick={() => useHelp.getState().openHelp("shortcuts")}
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-[#dcd6c8] text-[11px] font-semibold text-[#5c6470] hover:bg-[#f1ede4]"
+        title="Help, shortcuts & how it works (?)"
+        aria-label="Help"
+      >
+        ?
+      </button>
 
       <div className="ml-auto flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={() => setIntelOpen(true)} title="Local safety intel (Gemini + Google Search)">
@@ -176,8 +188,9 @@ export default function TopBar() {
               `${project.name.replace(/[^a-z0-9-_ ]/gi, "").replace(/\s+/g, "_")}.praesidium.json`,
               exportProjectJson(project)
             );
-            toast({ title: "Project exported", description: "A versioned JSON copy was downloaded." });
+            toast({ title: "Project exported", description: "A versioned JSON copy was downloaded — share it and anyone can open it with Open." });
           }}
+          title="Download / share this project as a .json file (others can load it with Open)"
         >
           Export
         </Button>
@@ -189,6 +202,7 @@ export default function TopBar() {
           className="bg-[#1d2430] text-white hover:bg-[#2c3642]"
           onClick={() => handleRun("baseline")}
           disabled={busy !== null}
+          data-tour="run"
         >
           {busy === "baseline" ? "Running…" : "Run simulation"}
         </Button>

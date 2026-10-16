@@ -13,6 +13,8 @@ import { useIntel } from "@/lib/ai/intelStore";
 import type { LocalIntel } from "@/lib/ai/context";
 import { cacheIntel, intelKey } from "@/lib/ai/intelLoader";
 import { cn } from "@/lib/utils";
+import { postApi } from "@/lib/api/client";
+import PanelSkeleton from "./PanelSkeleton";
 
 const DEFAULT_PLACE = "Vasanth Nagar, Bengaluru";
 const DEFAULT_GEO = { lat: 12.9918, lng: 77.5937 };
@@ -62,29 +64,19 @@ export default function LocalIntelPanel() {
           lat = DEFAULT_GEO.lat;
           lng = DEFAULT_GEO.lng;
         } else {
-          const g = await fetch("/api/geo/search", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ query: place }),
-          }).then((r) => r.json());
-          const top = g?.data?.results?.[0];
-          if (!g?.ok || !top) throw new Error(g?.error ?? "Could not find that locality.");
+          const g = await postApi<{ results?: { lat: number; lon: number }[] }>("/api/geo/search", { query: place });
+          const top = g?.results?.[0];
+          if (!top) throw new Error("Could not find that locality — try adding the city name.");
           lat = top.lat;
           lng = top.lon;
           placeName = place;
         }
       }
-      const res = await fetch("/api/ai/context", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lng, placeName, societyType: geo?.societyType }),
-      });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error ?? "Request failed.");
-      setIntel(json.data as LocalIntel);
-      if (typeof lat === "number" && typeof lng === "number") cacheIntel(intelKey(lat, lng), json.data as LocalIntel);
+      const data = await postApi<LocalIntel>("/api/ai/context", { lat, lng, placeName, societyType: geo?.societyType });
+      setIntel(data);
+      if (typeof lat === "number" && typeof lng === "number") cacheIntel(intelKey(lat, lng), data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed.");
+      setError(e instanceof Error && e.message ? e.message : "Local intel is unavailable right now. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -142,8 +134,8 @@ export default function LocalIntelPanel() {
           </div>
 
           {error && <div className="rounded-md border border-[#e6c4c4] bg-[#fbf0f0] p-2.5 text-[#8a3b3b]">{error}</div>}
-          {!loading && !intel && status === "loading" && <div className="rounded-md border border-[#e3ded4] bg-[#faf8f4] p-3 text-[#5c6470]">Loading local context in the background…</div>}
-          {loading && <div className="rounded-md border border-[#e3ded4] bg-[#faf8f4] p-3 text-[#5c6470]">Searching recent public reports…</div>}
+          {!loading && !intel && status === "loading" && <PanelSkeleton label="Loading local context in the background…" />}
+          {loading && <PanelSkeleton label="Searching recent public reports…" rows={4} />}
 
           {intel && !loading && (
             <>

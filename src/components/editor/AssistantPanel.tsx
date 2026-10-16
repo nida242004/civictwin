@@ -17,6 +17,8 @@ import { useIntel } from "@/lib/ai/intelStore";
 import QuickPicks from "./QuickPicks";
 import IntelChip from "./IntelChip";
 import { compactIntel } from "@/lib/ai/context";
+import { postApi } from "@/lib/api/client";
+import PanelSkeleton from "./PanelSkeleton";
 
 interface ProposeResponse {
   ok: boolean;
@@ -76,30 +78,19 @@ export default function AssistantPanel() {
     setResult(null);
     setApplied(false);
     try {
-      const res = await fetch("/api/ai/propose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project: {
-            name: project.name,
-            world: project.world,
-            scenario: project.scenario,
-          },
-          baselineRun: baselineRun
-            ? { metrics: baselineRun.metrics, events: baselineRun.events }
-            : null,
-          message: msg,
-          localIntel: compactIntel(useIntel.getState().intel),
-        }),
+      const data = await postApi<ProposeResponse["data"]>("/api/ai/propose", {
+        project: {
+          name: project.name,
+          world: project.world,
+          scenario: project.scenario,
+        },
+        baselineRun: baselineRun ? { metrics: baselineRun.metrics, events: baselineRun.events } : null,
+        message: msg,
+        localIntel: compactIntel(useIntel.getState().intel),
       });
-      const json = (await res.json()) as ProposeResponse;
-      if (!json.ok) {
-        setError(json.error ?? "The assistant request failed.");
-        return;
-      }
-      setResult(json.data ?? null);
+      setResult(data ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The assistant request failed.");
+      setError(err instanceof Error && err.message ? err.message : "The assistant request failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -156,12 +147,12 @@ export default function AssistantPanel() {
               <span className="text-[#8a8272]">checking…</span>
             ) : providerStatus === "gemini" ? (
               <span className="text-[#2e7d5b]">{PROVIDER_LABEL.gemini}</span>
-            ) : providerStatus === "none" ? (
+            ) : providerStatus === "none" || providerStatus === "rules" ? (
               <span className="text-[#7a5d1e]">{PROVIDER_LABEL.rules}</span>
             ) : (
               <span className="text-[#2e7d5b]">{PROVIDER_LABEL[providerStatus] ?? providerStatus}</span>
             )}
-            {providerStatus === "none" && (
+            {(providerStatus === "none" || providerStatus === "rules") && (
               <div className="mt-1 text-[10px] leading-snug text-[#8a8272]">
                 Set GEMINI_API_KEY in the backend environment to enable the Gemini planner. Without
                 it, the assistant uses deterministic rule-based recommendations computed from your
@@ -224,12 +215,7 @@ export default function AssistantPanel() {
             </div>
           )}
 
-          {loading && (
-            <div className="flex items-center gap-2 rounded-md border border-[#e3ded4] bg-[#faf8f4] p-3 text-xs text-[#5c6470]">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[#2e7d5b]" />
-              Preparing project summary and requesting a validated proposal…
-            </div>
-          )}
+          {loading && <PanelSkeleton label="Preparing project summary and requesting a validated proposal…" rows={4} />}
 
           {error && (
             <div className="rounded-md border border-[#e6c1c1] bg-[#fdf1f1] px-3 py-2 text-xs text-[#a33]">
